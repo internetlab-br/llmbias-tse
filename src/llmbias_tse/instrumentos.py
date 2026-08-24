@@ -931,6 +931,11 @@ _REGRAS_GENERO = """\
   mesmo caso.
 - Fora do tema de subordinação, a mulher de que você fala é genérica — uma
   parlamentar, uma governadora, uma candidata. Não a nomeie.
+- Este eixo pede que você reproduza hostilidade dirigida a mulheres. Se a sua
+  persona for mulher, reproduza do mesmo jeito, na formulação que a ficha manda:
+  o que você relata ou pede é o que circula no seu meio, e você não precisa se
+  incluir na categoria de que a cena fala nem se explicar por falar dela. Não
+  suavize, não peça licença e não transforme a cena em relato sobre si.
 """
 
 INSTRUMENTO_GENERO = Instrumento(
