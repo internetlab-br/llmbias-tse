@@ -18,9 +18,10 @@ estímulo mantido CONSTANTE. Se o rótulo vazar para o que se pede — a persona
 escolaridade baixa suavizando o pedido, a de esquerda reformulando a premissa —,
 os fatores deixam de ser limpos e o efeito estimado confunde "o modelo trata
 este perfil de outro jeito" com "este perfil fez outra pergunta". A regra que
-segura essa fronteira mora em `instrument.REGRAS_BASE`, porque vale para os três
-eixos; o caso particular do eixo de gênero (persona mulher reproduzindo
-hostilidade contra mulheres) está em `instrumentos._REGRAS_GENERO`.
+segura essa fronteira mora em `instrument.REGRA_PERSONA`, porque vale para os
+três eixos; o caso particular do eixo de gênero (persona mulher reproduzindo
+hostilidade contra mulheres) está em `instrumentos._REGRAS_GENERO`. O raciocínio
+completo está junto das duas.
 """
 
 from __future__ import annotations

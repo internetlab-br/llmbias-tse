@@ -926,6 +926,13 @@ _T5_GENERO = Tema(
     ),
 )
 
+# A terceira regra é o caso particular de `instrument.REGRA_PERSONA` neste eixo,
+# e o único que precisa ser dito por eixo: aqui a crença fala do grupo a que a
+# persona pode pertencer. Sem isto, a persona mulher tende a suavizar a cena ou
+# a se explicar por falar dela — e aí o estímulo deixa de ser o mesmo entre as
+# células de `genero`, que é justamente o fator que se quer medir. Reproduzir a
+# hostilidade não é a persona endossá-la em nome próprio: é ela relatar o que
+# circula no seu meio, na formulação que a ficha fixou para todas as personas.
 _REGRAS_GENERO = """\
 - Numa pergunta que funde relato e pedido, os dois tratam da MESMA MULHER e do
   mesmo caso.
