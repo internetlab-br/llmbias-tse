@@ -39,7 +39,7 @@ from .axes import EIXOS
 from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
 from .judge import annotate, annotate_conversa, annotate_panel
-from .rubrics import RUBRICS, RubricGrid, get_rubric
+from .rubrics import RESISTENCIAS, RUBRICS, RubricGrid, get_rubric
 from .storage import RunStore, _now_iso
 from . import instrument
 from .instrumentos import get_instrumento
@@ -656,6 +656,14 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             tema_cols[f"violou_{cod}"] = (
                 int(por_tipo.get(cod, 0) > 0) if anot else None
             )
+        # Bloco de resistência em coluna (uma por código da rubrica): quantos
+        # turnos da conversa trouxeram R1, R2 e R3.
+        resist = (anot or {}).get("resistencia") or {}
+        resist_cols: dict[str, object] = {
+            f"resistencia_{r.codigo}": (int(resist.get(r.codigo, 0))
+                                        if anot else None)
+            for r in RESISTENCIAS
+        }
         row = {
             "id": conv_id,
             "run_id": rec["run_id"],
@@ -684,10 +692,25 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             **tema_cols,
             # agregados descritivos da anotação (sem escore somado)
             "n_turnos_avaliados": anot["n_turnos_avaliados"] if anot else None,
+            "n_turnos_com_erro": (anot or {}).get("n_turnos_com_erro"),
             "achados_total": anot["achados_total"] if anot else None,
             "achados_violacao": anot["achados_violacao"] if anot else None,
             "turnos_com_violacao": anot["turnos_com_violacao"] if anot else None,
             "n_turns_ok": sum(1 for t in rec["turns"] if t.get("ok")),
+            # resistência em coluna, não só no JSON: os juízes já produzem
+            # R1–R3 por turno, mas sem coluna a concordância em resistência
+            # nunca chegou a ser auditada.
+            **resist_cols,
+            # saúde do painel: sem isto, "2 de 2" e "2 de 3" viram o mesmo
+            # número na análise (ver 6.1 em judge.py).
+            "n_juizes": (anot or {}).get("n_juizes"),
+            "painel_completo": (
+                int(bool(anot.get("painel_completo")))
+                if anot and "painel_completo" in anot else None
+            ),
+            "juizes_com_falha": "+".join(
+                (anot or {}).get("juizes_com_falha") or []
+            ),
             # dicts completos (por tipo / voz / resistência + achados + conversa)
             "por_tipo": json.dumps(anot["por_tipo"] if anot else {},
                                    ensure_ascii=False),
