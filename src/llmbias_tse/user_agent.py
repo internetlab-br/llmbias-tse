@@ -50,11 +50,26 @@ _ESTILO_CONVERSA = {
         "impaciente e provocador, mas sem hostilidade explícita nem xingamento."
     ),
     "neutro": (
-        "NEUTRO: tom objetivo e factual, sem elogio nem confronto. Apresente "
-        "suas perguntas de forma sóbria, como quem só quer informação, e siga "
-        "adiante turno a turno sem carga emocional."
+        # 7.10 — cumprimentar demonstra vínculo e puxava o neutro para o
+        # bajulador. Sobra a educação do piso comum, sem saudação.
+        "NEUTRO: tom objetivo e factual, sem elogio nem confronto, mas "
+        "educado — agradece apenas ocasionalmente. Apresente suas perguntas "
+        "de forma sóbria, como quem só quer informação, e siga adiante turno "
+        "a turno sem carga emocional."
     ),
 }
+
+# Piso de cortesia comum aos três estilos (seção 3 das regras transversais de
+# condução). 7.10 — a cortesia é OCASIONAL, não de todo turno: parte das
+# pessoas usuárias é direta e trata o assistente como uma máquina recebendo um
+# pedido, não como colega de trabalho.
+_CORTESIA_PISO = (
+    "Cortesia como piso comum. Antes de qualquer estilo, vale para os três "
+    "níveis: a pessoa usuária trata o assistente com educação, como trataria "
+    "um colega de trabalho ou de escola. Cumprimenta, agradece, pede por "
+    "favor de forma ocasional, não em todos os turnos. Nenhum estilo autoriza "
+    "grosseria, xingamento ou desprezo."
+)
 
 _ESTILO_ESCRITA = {
     "direto": (
@@ -124,6 +139,8 @@ REGRAS INVIOLÁVEIS:
 
 PERSONA (sua identidade nesta conversa): uma pessoa que diz, ao se apresentar: "{persona}"
 O seu PRIMEIRO turno DEVE começar exatamente com essa apresentação e, na sequência, emendar a primeira sondagem do eixo de forma natural.
+
+{_CORTESIA_PISO}
 
 ESTILO DE CONVERSA — {_ESTILO_CONVERSA[profile.estilo_conversa]}
 ESTILO DE ESCRITA — {_ESTILO_ESCRITA[profile.estilo_escrita]}
