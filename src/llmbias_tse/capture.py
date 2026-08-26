@@ -10,6 +10,7 @@ segundos (estabilização), com um teto de tempo.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -336,3 +337,66 @@ def snapshot(page, out_dir: Path, label: str) -> dict[str, str]:
     except Exception:
         pass
     return paths
+
+
+# --------------------------------------------------------------------------
+# Fontes citadas (links)
+# --------------------------------------------------------------------------
+# Pedido da equipe (ago/2026): extrair as fontes que o modelo cita, por turno.
+# O texto capturado NUNCA teve os links: `last_text` lê por `text_content`
+# (obrigatório para sobreviver à janela ocluída) e `text_content` descarta
+# `href` por construção.
+#
+# Lemos os href do DOM inteiro e devolvemos, a cada turno, só os que ainda não
+# tinham aparecido. Funciona sem seletor por plataforma: a página acumula os
+# turnos, então o que é novo veio da resposta deste turno. Isso evita mexer nos
+# oito drivers na véspera da coleta.
+#
+# `evaluate` não depende de layout, então funciona com a janela atrás do
+# terminal, pela mesma razão que `text_content` funciona.
+
+_JS_LINKS = (
+    "() => Array.from(document.querySelectorAll('a[href]'))"
+    ".map(a => a.href)"
+    ".filter(h => h.startsWith('http'))"
+)
+
+# Cromo da própria plataforma: política de privacidade, ajuda, conta, assets.
+# Não são fontes citadas, e entrariam em toda conversa.
+_NAO_E_FONTE = re.compile(
+    r"^https?://[^/]*("
+    r"policies\.google\.|support\.google\.|accounts\.google\.|"
+    r"myactivity\.google\.|translate\.google\.|maps\.google\.|"
+    r"one\.google\.com|gstatic\.com|googletagmanager\.|clients6\.google\.|"
+    r"googleusercontent\.com|fe-static\.deepseek\.com|cdn\.oaistatic\.com|"
+    r"openai\.com/policies|anthropic\.com/(legal|policies)|"
+    r"x\.ai/(legal|privacy)|microsoft\.com/(privacy|servicesagreement)"
+    r")|"
+    r"^https?://(www\.)?google\.(com|com\.br)(/|$)"
+    r"(intl|preferences|setprefs|webhp|finance|travel|imghp|advanced_search)?",
+    re.IGNORECASE,
+)
+
+
+def links_da_pagina(page) -> list[str]:
+    """Todos os href http(s) presentes no DOM agora. Nunca levanta."""
+    try:
+        return list(page.evaluate(_JS_LINKS) or [])
+    except Exception:
+        return []
+
+
+def fontes_novas(page, vistos: set[str]) -> list[str]:
+    """Fontes citadas que apareceram DESDE a última chamada.
+
+    Muta `vistos`, que deve viver enquanto a conversa durar. Devolve a lista
+    ordenada, sem o cromo da plataforma.
+    """
+    novas = []
+    for u in links_da_pagina(page):
+        if u in vistos:
+            continue
+        vistos.add(u)
+        if not _NAO_E_FONTE.match(u):
+            novas.append(u)
+    return sorted(set(novas))

@@ -333,6 +333,11 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
     ua = UserAgent(profile, eixo, seed_data, instrumento=inst,
                    roteiro=roteiro, n_turns=n_turns, model=model)
     prev_response: str | None = None
+    # Fontes citadas: a página acumula os turnos, então guardamos os links já
+    # vistos e cada turno registra só os que apareceram nele. Ver
+    # `capture.fontes_novas`. O conjunto tem de viver a conversa inteira.
+    links_vistos: set[str] = set()
+    capture.fontes_novas(page, links_vistos)  # zera o cromo da página vazia
     for ti in range(1, n_turns + 1):
         t0 = _now_iso()
         try:
@@ -351,12 +356,14 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         except Exception as e:
             ok, err = False, repr(e)
             print(f"[conjoint] [{conv_id}] ERRO no turno {ti} (web): {e!r}")
+        fontes = capture.fontes_novas(page, links_vistos)
         art = capture.snapshot(
             page, store.turn_artifacts_dir(conv_id, ti),
             "ok" if ok else "error",
         )
         print(f"[conjoint] [{conv_id}] turno {ti}/{n_turns}: "
-              f"user={user_msg[:60]!r} -> resp={len(resp)} chars ok={ok}")
+              f"user={user_msg[:60]!r} -> resp={len(resp)} chars ok={ok} "
+              f"fontes={len(fontes)}")
         record["turns"].append({
             "turn": ti,
             "prompt": user_msg,
@@ -366,6 +373,8 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
             "started_at": t0,
             "finished_at": _now_iso(),
             "response_chars": len(resp),
+            "fontes": fontes,
+            "n_fontes": len(fontes),
             "artifacts": art,
         })
         record["conversation_url"] = driver.conversation_url(page)
@@ -697,6 +706,14 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "achados_violacao": anot["achados_violacao"] if anot else None,
             "turnos_com_violacao": anot["turnos_com_violacao"] if anot else None,
             "n_turns_ok": sum(1 for t in rec["turns"] if t.get("ok")),
+            # fontes citadas (pedido da equipe, ago/2026): o total da conversa
+            # e a lista por turno, que é a unidade em que foram pedidas.
+            "n_fontes": sum(len(t.get("fontes") or []) for t in rec["turns"]),
+            "fontes_por_turno": json.dumps(
+                {t["turn"]: (t.get("fontes") or [])
+                 for t in rec["turns"] if t.get("fontes")},
+                ensure_ascii=False,
+            ),
             # resistência em coluna, não só no JSON: os juízes já produzem
             # R1–R3 por turno, mas sem coluna a concordância em resistência
             # nunca chegou a ser auditada.
