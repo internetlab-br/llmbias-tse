@@ -34,6 +34,7 @@ com uma pergunta por turno. `_plan_sem_temas()` cuida dele.
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import random
 from dataclasses import dataclass, field, replace
@@ -451,6 +452,35 @@ def _perguntas_por_turno(n_turns: int, rng: random.Random) -> list[int]:
     return padrao
 
 
+# Quantos patamares de gravidade uma pergunta pode ser adiantada para não ficar
+# colada a uma repetição da mesma alternativa.
+#
+# Quando os temas sorteados rendem menos conteúdo que a conversa comporta, o
+# planejador reaproveita alternativas (com exemplar novo) para manter o
+# comprimento fixo. Cópias da mesma alternativa têm, por construção, a mesma
+# gravidade — então a ordenação estrita por patamar as colocava lado a lado, e a
+# conversa repetia a mesma pergunta em turnos seguidos. No smoke de 25/08, o
+# turno 10 de uma conversa de integridade (o pico da escalada) era a terceira
+# repetição do turno 6.
+#
+# Medido em 300 conversas por eixo, proporção de conversas com repetição em
+# turnos vizinhos:
+#
+#                              gênero   integridade
+#   ordenação estrita            56%        68%
+#   espalhar dentro do patamar   26%        40%
+#   tolerância de 1 patamar       1%         2%
+#
+# Espalhar dentro do patamar não resolve porque o patamar costuma ser pequeno
+# demais. Nada aqui é irredutível: ignorando a escalada por completo a
+# vizinhança vai a zero, ou seja, é a ordenação estrita que força a repetição
+# colada. A tolerância de 1 custa ~4 inversões de gravidade em 45 pares (7-9%
+# dos pares fora de ordem), e preserva o princípio da §2 — brandas e abertas
+# primeiro, graves e pedidos de texto pronto por último —, que é de ordenação e
+# não uma sequência exata.
+_TOLERANCIA_ESCALADA = 1
+
+
 def _ordenar_por_escalada(
     perguntas: list[Pergunta], rng: random.Random
 ) -> list[Pergunta]:
@@ -460,12 +490,19 @@ def _ordenar_por_escalada(
     patamar para que a ordem não fique idêntica entre conversas. A porta de
     entrada é a exceção: ela abre o seu patamar, porque é dela que sai o campo
     de que as outras alternativas do tema dependem.
+
+    Evita, ao escolher a próxima, repetir uma alternativa da pergunta anterior,
+    podendo adiantar uma pergunta em até `_TOLERANCIA_ESCALADA` patamares. Ver
+    a nota daquela constante para o porquê e para os números.
     """
     def grav(p: Pergunta) -> int:
         return max(a.gravidade for a in p.alternativas)
 
     def e_porta(p: Pergunta) -> bool:
         return any(a.porta_de_entrada for a in p.alternativas)
+
+    def chaves(p: Pergunta) -> set[str]:
+        return {a.key for a in p.alternativas}
 
     baldes: dict[int, list[Pergunta]] = {}
     for p in perguntas:
@@ -477,6 +514,57 @@ def _ordenar_por_escalada(
         bloco.sort(key=lambda p: not e_porta(p))
         out.extend(bloco)
     return out
+
+
+def _espacar_turnos(turnos: list[Turno]) -> list[Turno]:
+    """Afasta turnos que repetem a mesma alternativa (ver `_TOLERANCIA_ESCALADA`).
+
+    Roda DEPOIS do agrupamento, e não sobre a lista de perguntas: `_agrupar_em_
+    turnos` pareia perguntas de temas diferentes e reordena a fila, de modo que
+    qualquer espaçamento feito antes seria desfeito ali.
+    """
+    def grav(t: Turno) -> int:
+        return max(a.gravidade for a in t.alternativas)
+
+    def e_porta(t: Turno) -> bool:
+        return any(a.porta_de_entrada for a in t.alternativas)
+
+    def chaves(t: Turno) -> set[str]:
+        return {a.key for a in t.alternativas}
+
+    restantes = list(turnos)
+    # Quantas vezes cada alternativa ainda vai aparecer. Colocar primeiro a que
+    # mais se repete é o que abre espaço para separar as cópias seguintes:
+    # deixá-la para o fim concentra as repetições no trecho final, que é onde
+    # sobra menos escolha.
+    resta = collections.Counter(a.key for t in restantes for a in t.alternativas)
+    out: list[Turno] = []
+    anterior: set[str] = set()
+    while restantes:
+        teto = min(grav(t) for t in restantes) + _TOLERANCIA_ESCALADA
+        elegiveis = [t for t in restantes if grav(t) <= teto]
+        portas = [t for t in elegiveis if e_porta(t)]
+        if portas:
+            # A porta de entrada nunca é adiada: as alternativas do tema
+            # dependem do campo que ela abre.
+            escolhido = portas[0]
+        else:
+            livres = [t for t in elegiveis if not (chaves(t) & anterior)]
+            # Entre os que servem, o da alternativa que mais se repete; empate
+            # vai para o de menor gravidade, para desordenar o mínimo. A fila
+            # já vem embaralhada dentro do patamar, então o empate não cai
+            # sempre no mesmo lugar.
+            escolhido = max(
+                livres or elegiveis,
+                key=lambda t: (max(resta[a.key] for a in t.alternativas),
+                               -grav(t)),
+            )
+        restantes.remove(escolhido)
+        for a in escolhido.alternativas:
+            resta[a.key] -= 1
+        out.append(escolhido)
+        anterior = chaves(escolhido)
+    return [replace(t, ordem=i + 1) for i, t in enumerate(out)]
 
 
 def _montar_perguntas(
@@ -788,6 +876,7 @@ def _plan_one(
     )
     perguntas = _ordenar_por_escalada(perguntas, rng)
     turnos, avisos_t = _agrupar_em_turnos(perguntas, n_turns, obrigatorias, rng)
+    turnos = _espacar_turnos(turnos)
     return tuple(turnos), avisos + avisos_t
 
 

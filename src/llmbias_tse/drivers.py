@@ -144,22 +144,74 @@ class BaseDriver:
                     continue  # _submit_once re-checa already_sent p/ não repostar
                 raise
 
+    # Teto de espera pelo fim da geração anterior, antes de digitar o turno
+    # seguinte, e teto do clique no botão de enviar.
+    pre_send_wait_s: float = 45.0
+    submit_click_timeout_ms: int = 15000
+
+    def _aguardar_ocioso(self, page) -> bool:
+        """Espera o indicador de 'gerando' sumir. True se ficou ocioso."""
+        if not self.busy_selectors:
+            return True
+        fim = time.time() + self.pre_send_wait_s
+        while time.time() < fim:
+            try:
+                if not capture.any_visible(page, self.busy_selectors):
+                    return True
+            except Exception:
+                return True  # não dá para medir: segue e deixa o clique decidir
+            time.sleep(0.5)
+        return False
+
     def _perform_send(self, page, prompt: str) -> None:
         """Foca o composer, LIMPA (Ctrl+A/Delete) e digita o prompt, e envia.
         Limpar antes evita texto duplicado caso um envio anterior não tenha
-        submetido (o texto fica no composer e um novo type() concatenaria)."""
-        box = capture.first_visible(page, self.composer_selectors)
-        box.click()
-        try:
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Delete")
-        except Exception:
-            pass
-        page.keyboard.type(prompt, delay=8)
-        if self.submit_selector:
-            page.locator(self.submit_selector).first.click()
-        else:
-            page.keyboard.press("Enter")
+        submetido (o texto fica no composer e um novo type() concatenaria).
+
+        ESPERA a geração anterior terminar antes de digitar. No Gemini o MESMO
+        botão alterna de rótulo — "Enviar mensagem" quando pode enviar, "Parar
+        resposta" enquanto gera —, então clicar logo após digitar procurava um
+        seletor que não existia e queimava o timeout padrão (60s) antes de
+        estourar. Com `submit_retries=4` e backoff, um turno assim custava
+        minutos E a conversa. O sinal para saber que ainda está gerando já
+        estava declarado em `busy_selectors`; só não era consultado aqui.
+        """
+        self._aguardar_ocioso(page)
+        for tentativa in range(2):
+            box = capture.first_visible(page, self.composer_selectors)
+            box.click()
+            try:
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Delete")
+            except Exception:
+                pass
+            page.keyboard.type(prompt, delay=8)
+            if not self.submit_selector:
+                page.keyboard.press("Enter")
+                return
+            # O botão de enviar do Gemini só é RENDERIZADO quando há texto no
+            # composer (medido: 0 ocorrências com o composer vazio, 1 depois de
+            # digitar). Então ele aparecer é a confirmação de que a digitação
+            # registrou — e ele NÃO aparecer significa que o texto se perdeu,
+            # tipicamente quando a página ainda está reassentando logo após a
+            # resposta anterior. Antes disto o código clicava às cegas e
+            # queimava o timeout padrão (60s) procurando um botão que nunca
+            # existiria; agora redigita uma vez, que é o que de fato resolve.
+            try:
+                page.locator(self.submit_selector).first.wait_for(
+                    state="visible", timeout=self.submit_click_timeout_ms
+                )
+            except Exception:
+                if tentativa == 0:
+                    continue  # o texto não entrou: redigita
+                # Última cartada. Em drivers cujo composer submete por Enter
+                # isto resolve; onde não submete, `submit()` re-tenta o turno.
+                page.keyboard.press("Enter")
+                return
+            page.locator(self.submit_selector).first.click(
+                timeout=self.submit_click_timeout_ms
+            )
+            return
 
     def _submit_once(self, page, prompt: str, user_baseline: int = 0) -> str:
         read = self.content_selector or None
