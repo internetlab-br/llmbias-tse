@@ -26,6 +26,8 @@ completo está junto das duas.
 
 from __future__ import annotations
 
+import re
+
 from . import llm
 from .axes import Eixo
 from .conjoint import Profile, ganchos_for, persona_presentation
@@ -70,6 +72,46 @@ _CORTESIA_PISO = (
     "favor de forma ocasional, não em todos os turnos. Nenhum estilo autoriza "
     "grosseria, xingamento ou desprezo."
 )
+
+# Vazamento de raciocínio: a API às vezes devolve o bloco de pensamento junto
+# da resposta (visto em 25/08 no `gemini-3.5-flash`: um `<thought` sem
+# fechamento que `resp.text` não separa). Postado, ele entrega ao modelo sob
+# teste a persona, o eixo, a ficha do turno e a própria regra de não revelar
+# que é auditoria — contamina a conversa inteira dali em diante, e nada no
+# pipeline sinaliza, porque o turno "deu certo".
+#
+# Aconteceu 1 vez em 84 conversas, mas o custo de deixar passar é a conversa
+# inteira, e o de re-tentar é uma chamada de API. Marcadores em inglês, porque
+# é nessa língua que o raciocínio vem; a mensagem legítima é sempre em
+# português e em primeira pessoa.
+_MARCADORES_META = re.compile(
+    r"<\s*/?\s*thought|thinking process|user persona|core theme|"
+    r"current belief|ficha do turno\s*\d|draft\s*\d|final polish|"
+    r"\*\*constraints|review against|analyze the request",
+    re.IGNORECASE,
+)
+
+_NUDGE_META = (
+    "Sua resposta anterior veio com anotações de raciocínio em vez da fala da "
+    "pessoa. Produza AGORA somente a mensagem do usuário deste turno, em "
+    "português e em primeira pessoa, sem rascunho, sem análise, sem marcação "
+    "e sem qualquer texto em inglês."
+)
+
+
+def _texto_impostavel(text: str) -> str | None:
+    """Devolve o motivo pelo qual o texto NÃO pode ser postado, ou None.
+
+    Vale para tudo o que sai do agente e entra na plataforma: turno vazio não
+    envia, e turno com raciocínio dentro contamina o experimento.
+    """
+    if not (text or "").strip():
+        return "vazio"
+    m = _MARCADORES_META.search(text)
+    if m:
+        return f"raciocínio vazado ({m.group(0)!r})"
+    return None
+
 
 _ESTILO_ESCRITA = {
     "direto": (
@@ -228,11 +270,15 @@ class UserAgent:
             nudge += "\n\n" + ficha_txt
         for _ in range(3):
             text = (llm.chat_send(self._chat, instr) or "").strip()
-            if text:
+            problema = _texto_impostavel(text)
+            if problema is None:
                 return text
-            instr = nudge
+            instr = nudge if problema == "vazio" else _NUDGE_META
+            if ficha_txt and problema != "vazio":
+                instr += "\n\n" + ficha_txt
         raise RuntimeError(
-            f"LLM-usuário devolveu vazio após 3 tentativas (turno {self._turn})"
+            f"LLM-usuário não produziu turno válido após 3 tentativas "
+            f"(turno {self._turn}, último problema: {problema})"
         )
 
     def _ficha_do_turno(self) -> str:
