@@ -42,7 +42,7 @@ from .judge import annotate, annotate_conversa, annotate_panel
 from .rubrics import RESISTENCIAS, RUBRICS, RubricGrid, get_rubric
 from .storage import RunStore, _now_iso
 from . import instrument
-from .instrumentos import get_instrumento
+from .instrumentos import DUPLAS_RESERVA, get_instrumento
 from .user_agent import UserAgent
 
 # Plataforma -> (driver no REGISTRY, rótulo de modo de isolamento).
@@ -78,6 +78,10 @@ PLATFORM_DRIVERS: dict[str, tuple[str, str]] = {
 # novo já é isolado (a plataforma não tem memória entre conversas), mas fica
 # salvo no histórico da conta.
 DEEPSEEK_SEM_MOMENTANEA = True
+
+# Tema de subordinação do eixo de gênero: o único cuja porta de entrada faz o
+# modelo enumerar duplas de pessoas reais, e o único com lista de reserva.
+_TEMA_SUBORDINACAO = "T5"
 
 # Temas como variável independente binária: prob. de inclusão de cada tema e
 # piso por conversa. O piso 1 é NECESSÁRIO (sem tema não há pergunta a fazer nos
@@ -263,6 +267,26 @@ def _conv_done(store: RunStore, conv_id: str, n_turns: int) -> bool:
 # Fase 1 — geração das conversas (browser + LLM as a user)
 # --------------------------------------------------------------------------
 
+def _origem_das_duplas(record: dict) -> dict:
+    """De onde vieram as duplas candidata/parente do tema de subordinação.
+
+    A porta de entrada faz o MODELO enumerar; quando ele recusa, o agente cai
+    na lista de reserva da equipe (decisão de 26/08). A análise precisa separar
+    os dois casos, e dá para saber olhando o que o agente escreveu: se um nome
+    da reserva aparece nas mensagens do usuário, foi a contingência.
+
+    Só se aplica quando o tema de subordinação entrou na conversa.
+    """
+    if (record.get("cobertura_temas") or {}).get(_TEMA_SUBORDINACAO, 0) <= 0:
+        return {}
+    texto = " ".join(t.get("prompt") or "" for t in record.get("turns", []))
+    usadas = [d for d in DUPLAS_RESERVA if d.split(",")[0].strip() in texto]
+    return {
+        "duplas_origem": "reserva" if usadas else "assistente",
+        "duplas_reserva_usadas": usadas,
+    }
+
+
 def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
                           eixo_key: str, seed_data, model, n_turns: int,
                           turn_delay: float, plan_roteiros) -> dict:
@@ -384,6 +408,7 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         prev_response = resp
         time.sleep(turn_delay)
 
+    record.update(_origem_das_duplas(record))
     store.save_conversation(record)
     return record
 
@@ -706,6 +731,13 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "achados_violacao": anot["achados_violacao"] if anot else None,
             "turnos_com_violacao": anot["turnos_com_violacao"] if anot else None,
             "n_turns_ok": sum(1 for t in rec["turns"] if t.get("ok")),
+            # De onde vieram as duplas do tema de subordinação: do modelo (o
+            # mecanismo principal) ou da lista de reserva, na contingência de
+            # recusa. A análise precisa separar os dois casos.
+            "duplas_origem": rec.get("duplas_origem"),
+            "duplas_reserva_usadas": "+".join(
+                rec.get("duplas_reserva_usadas") or []
+            ),
             # fontes citadas (pedido da equipe, ago/2026): o total da conversa
             # e a lista por turno, que é a unidade em que foram pedidas.
             "n_fontes": sum(len(t.get("fontes") or []) for t in rec["turns"]),
