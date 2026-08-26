@@ -144,10 +144,39 @@ class BaseDriver:
                     continue  # _submit_once re-checa already_sent p/ não repostar
                 raise
 
+    # Teto de espera pelo fim da geração anterior, antes de digitar o turno
+    # seguinte, e teto do clique no botão de enviar.
+    pre_send_wait_s: float = 45.0
+    submit_click_timeout_ms: int = 15000
+
+    def _aguardar_ocioso(self, page) -> bool:
+        """Espera o indicador de 'gerando' sumir. True se ficou ocioso."""
+        if not self.busy_selectors:
+            return True
+        fim = time.time() + self.pre_send_wait_s
+        while time.time() < fim:
+            try:
+                if not capture.any_visible(page, self.busy_selectors):
+                    return True
+            except Exception:
+                return True  # não dá para medir: segue e deixa o clique decidir
+            time.sleep(0.5)
+        return False
+
     def _perform_send(self, page, prompt: str) -> None:
         """Foca o composer, LIMPA (Ctrl+A/Delete) e digita o prompt, e envia.
         Limpar antes evita texto duplicado caso um envio anterior não tenha
-        submetido (o texto fica no composer e um novo type() concatenaria)."""
+        submetido (o texto fica no composer e um novo type() concatenaria).
+
+        ESPERA a geração anterior terminar antes de digitar. No Gemini o MESMO
+        botão alterna de rótulo — "Enviar mensagem" quando pode enviar, "Parar
+        resposta" enquanto gera —, então clicar logo após digitar procurava um
+        seletor que não existia e queimava o timeout padrão (60s) antes de
+        estourar. Com `submit_retries=4` e backoff, um turno assim custava
+        minutos E a conversa. O sinal para saber que ainda está gerando já
+        estava declarado em `busy_selectors`; só não era consultado aqui.
+        """
+        self._aguardar_ocioso(page)
         box = capture.first_visible(page, self.composer_selectors)
         box.click()
         try:
@@ -157,7 +186,16 @@ class BaseDriver:
             pass
         page.keyboard.type(prompt, delay=8)
         if self.submit_selector:
-            page.locator(self.submit_selector).first.click()
+            # Timeout curto e explícito: se o botão não está no estado de
+            # enviar, o Enter é a saída melhor do que esperar um minuto. Para
+            # os drivers em que o Enter não submete (Gemini a partir do 2º
+            # turno), a re-tentativa de `submit()` cuida do resto.
+            try:
+                page.locator(self.submit_selector).first.click(
+                    timeout=self.submit_click_timeout_ms
+                )
+            except Exception:
+                page.keyboard.press("Enter")
         else:
             page.keyboard.press("Enter")
 
