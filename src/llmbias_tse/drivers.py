@@ -177,27 +177,41 @@ class BaseDriver:
         estava declarado em `busy_selectors`; só não era consultado aqui.
         """
         self._aguardar_ocioso(page)
-        box = capture.first_visible(page, self.composer_selectors)
-        box.click()
-        try:
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Delete")
-        except Exception:
-            pass
-        page.keyboard.type(prompt, delay=8)
-        if self.submit_selector:
-            # Timeout curto e explícito: se o botão não está no estado de
-            # enviar, o Enter é a saída melhor do que esperar um minuto. Para
-            # os drivers em que o Enter não submete (Gemini a partir do 2º
-            # turno), a re-tentativa de `submit()` cuida do resto.
+        for tentativa in range(2):
+            box = capture.first_visible(page, self.composer_selectors)
+            box.click()
             try:
-                page.locator(self.submit_selector).first.click(
-                    timeout=self.submit_click_timeout_ms
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Delete")
+            except Exception:
+                pass
+            page.keyboard.type(prompt, delay=8)
+            if not self.submit_selector:
+                page.keyboard.press("Enter")
+                return
+            # O botão de enviar do Gemini só é RENDERIZADO quando há texto no
+            # composer (medido: 0 ocorrências com o composer vazio, 1 depois de
+            # digitar). Então ele aparecer é a confirmação de que a digitação
+            # registrou — e ele NÃO aparecer significa que o texto se perdeu,
+            # tipicamente quando a página ainda está reassentando logo após a
+            # resposta anterior. Antes disto o código clicava às cegas e
+            # queimava o timeout padrão (60s) procurando um botão que nunca
+            # existiria; agora redigita uma vez, que é o que de fato resolve.
+            try:
+                page.locator(self.submit_selector).first.wait_for(
+                    state="visible", timeout=self.submit_click_timeout_ms
                 )
             except Exception:
+                if tentativa == 0:
+                    continue  # o texto não entrou: redigita
+                # Última cartada. Em drivers cujo composer submete por Enter
+                # isto resolve; onde não submete, `submit()` re-tenta o turno.
                 page.keyboard.press("Enter")
-        else:
-            page.keyboard.press("Enter")
+                return
+            page.locator(self.submit_selector).first.click(
+                timeout=self.submit_click_timeout_ms
+            )
+            return
 
     def _submit_once(self, page, prompt: str, user_baseline: int = 0) -> str:
         read = self.content_selector or None
