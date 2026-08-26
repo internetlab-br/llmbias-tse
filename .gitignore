@@ -21,3 +21,9 @@ docs/*.docx
 
 # Artefatos de ferramentas locais (Playwright MCP, etc.)
 .playwright-mcp/
+
+# Material operacional interno — NÃO publicar (repo público).
+# O prompt de operação diz quem roda o quê, em que conta, e como
+# contornar os limites das plataformas: é procedimento da equipe,
+# não metodologia. A metodologia é que tem de ser pública.
+docs/interno/
