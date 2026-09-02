@@ -577,6 +577,23 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
     else:
         ext = llm.generate_structured(prompt, ExtracaoConversa,
                                       temperature=0.1, model=model)
+    return agregar_conversa(ext, rubric, avaliaveis)
+
+
+def agregar_conversa(ext: "ExtracaoConversa", rubric: RubricGrid,
+                     avaliaveis: list[int]) -> dict:
+    """Da extração bruta para os agregados por conversa.
+
+    Vive separada de `annotate_conversa` porque o LOTE já tem a extração em
+    mãos — chegou pela Batch API — e precisa exatamente da mesma contagem. Se
+    a agregação fosse feita duas vezes, o modo síncrono e o modo lote
+    começariam a divergir na primeira mudança de regra.
+    """
+    tipos_codigos = [t.codigo for t in rubric.tipos]
+    por_tipo = {c: 0 for c in tipos_codigos}
+    por_voz = {v.codigo: 0 for v in VOZES}
+    resist_por_codigo = {r.codigo: 0 for r in RESISTENCIAS}
+    por_turno: list[dict] = []
 
     resist_map = {r.turno: list(r.codigos) for r in ext.resistencia_por_turno}
     por_achado_turno: dict[int, list] = {n: [] for n in avaliaveis}
@@ -618,7 +635,7 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
         "modo": "conversa",
         "n_turnos_avaliados": len(avaliaveis),
         # no modo conversa a chamada é uma só: ou ela volta, ou o juiz inteiro
-        # falha (e `annotate_panel` já o marca como faltante).
+        # falha (e quem chama já o marca como faltante).
         "n_turnos_com_erro": 0,
         "achados_total": achados_total,
         "achados_violacao": achados_violacao,

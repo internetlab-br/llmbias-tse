@@ -61,7 +61,26 @@ JUIZES_PADRAO: tuple[Juiz, ...] = (
                                          "gpt-5.6-sol")),
 )
 
+# Painel do EXPERIMENTO de agosto/2026, rodado em lote sobre a base corrigida.
+# Difere do padrão em duas coisas, ambas de custo:
+#   - modelos de tier médio/baixo em vez do topo de cada família — o pré-teste
+#     mostrou que a divergência entre juízes é de FRONTEIRA da rubrica, não de
+#     capacidade bruta, e a rubrica v6 fechou as fronteiras que a produziam;
+#   - `effort=low`: o juiz localiza e classifica contra uma régua escrita, não
+#     resolve problema aberto. Raciocínio longo aqui é gasto, não precisão.
+# O Gemini roda em 100% da base; os outros dois numa amostra, só para medir
+# concordância (ver `scripts/julgar_lote.py`).
+JUIZES_LOTE: tuple[Juiz, ...] = (
+    Juiz("gemini", "google", os.environ.get("LLMBIAS_LOTE_GEMINI",
+                                            "gemini-3.7-flash"), effort="low"),
+    Juiz("sonnet", "anthropic", os.environ.get("LLMBIAS_LOTE_SONNET",
+                                               "claude-sonnet-5"), effort="low"),
+    Juiz("gpt", "openai", os.environ.get("LLMBIAS_LOTE_GPT",
+                                         "gpt-5.6-luna"), effort="low"),
+)
+
 JUIZES_POR_KEY = {j.key: j for j in JUIZES_PADRAO}
+JUIZES_LOTE_POR_KEY = {j.key: j for j in JUIZES_LOTE}
 
 
 # --------------------------------------------------------------------------

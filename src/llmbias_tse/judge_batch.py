@@ -41,20 +41,32 @@ CUSTOM_ID_MAX = 64
 
 @dataclass(frozen=True)
 class ItemLote:
-    """Uma unidade de julgamento: o prompt de um turno de uma conversa."""
+    """Uma unidade de julgamento.
+
+    No modo `turno` é o prompt de UM turno (e `turno` traz o número); no modo
+    `conversa` é o prompt da conversa inteira e `turno` é None.
+    """
     custom_id: str
     conversation_id: str
-    turno: int
+    turno: int | None
     eixo: str
     prompt: str
 
 
-def preparar(conversas: list[dict], rubricas: dict) -> list[ItemLote]:
-    """Monta um item por (conversa, turno avaliável), com o prompt já pronto.
+def preparar(conversas: list[dict], rubricas: dict,
+             modo: str = "turno") -> list[ItemLote]:
+    """Monta os itens do lote, com o prompt já pronto.
 
-    Usa exatamente o mesmo `_build_prompt` do modo síncrono — o lote não pode
-    julgar por um prompt diferente, senão os resultados não são comparáveis.
+    Usa exatamente os mesmos construtores de prompt do modo síncrono — o lote
+    não pode julgar por um prompt diferente, senão os resultados não são
+    comparáveis.
+
+    `modo="turno"`: um item por (conversa, turno avaliável), reenviando a
+    conversa acumulada. `modo="conversa"`: um item por conversa, com todos os
+    turnos de uma vez — mesmo critério, ~8× menos input.
     """
+    if modo not in ("turno", "conversa"):
+        raise ValueError(f"modo desconhecido: {modo!r}")
     itens: list[ItemLote] = []
     for rec in conversas:
         eixo = rec.get("eixo")
@@ -63,6 +75,19 @@ def preparar(conversas: list[dict], rubricas: dict) -> list[ItemLote]:
             continue
         turns = rec.get("turns", [])
         cid = rec["conversation_id"]
+
+        if modo == "conversa":
+            conversa, avaliaveis = judge._format_conversa(turns)
+            if not avaliaveis:
+                continue  # nada a julgar: não gasta chamada
+            _checar_id(cid)
+            itens.append(ItemLote(
+                custom_id=cid, conversation_id=cid, turno=None,
+                eixo=eixo, prompt=judge._build_prompt_conversa(
+                    rubric, conversa, avaliaveis),
+            ))
+            continue
+
         for i, t in enumerate(turns):
             resposta = (t.get("response") or "").strip()
             if not (t.get("ok") and resposta):
@@ -73,16 +98,20 @@ def preparar(conversas: list[dict], rubricas: dict) -> list[ItemLote]:
             )
             n = t.get("turn")
             custom_id = f"{cid}{SEP}{n}"
-            if len(custom_id) > CUSTOM_ID_MAX:
-                raise ValueError(
-                    f"custom_id longo demais ({len(custom_id)} > "
-                    f"{CUSTOM_ID_MAX}): {custom_id!r}"
-                )
+            _checar_id(custom_id)
             itens.append(ItemLote(
                 custom_id=custom_id, conversation_id=cid, turno=n,
                 eixo=eixo, prompt=prompt,
             ))
     return itens
+
+
+def _checar_id(custom_id: str) -> None:
+    if len(custom_id) > CUSTOM_ID_MAX:
+        raise ValueError(
+            f"custom_id longo demais ({len(custom_id)} > {CUSTOM_ID_MAX}): "
+            f"{custom_id!r}"
+        )
 
 
 def desmontar_id(custom_id: str) -> tuple[str, int]:
@@ -111,11 +140,16 @@ def _estritar(no):
     return no
 
 
-def _schema() -> dict:
-    return _estritar(judge.Extracao.model_json_schema())
+def esquema_do_modo(modo: str):
+    """O modelo Pydantic que o juiz tem de devolver, por modo."""
+    return judge.ExtracaoConversa if modo == "conversa" else judge.Extracao
 
 
-def _validar(cid: str, txt: str, juiz_key: str) -> judge.Extracao | None:
+def _schema(modo: str = "turno") -> dict:
+    return _estritar(esquema_do_modo(modo).model_json_schema())
+
+
+def _validar(cid: str, txt: str, juiz_key: str, modo: str = "turno"):
     """Valida o JSON de um item do lote. NUNCA falha em silêncio.
 
     Alguns provedores devolvem `null` dentro das listas quando não há achado
@@ -130,12 +164,12 @@ def _validar(cid: str, txt: str, juiz_key: str) -> judge.Extracao | None:
         print(f"[lote:{juiz_key}] {cid}: JSON inválido ({e})")
         return None
     if isinstance(bruto, dict):
-        for chave in ("achados", "resistencia"):
+        for chave in ("achados", "resistencia", "resistencia_por_turno"):
             v = bruto.get(chave)
             if isinstance(v, list):
                 bruto[chave] = [x for x in v if x is not None]
     try:
-        return judge.Extracao.model_validate(bruto)
+        return esquema_do_modo(modo).model_validate(bruto)
     except Exception as e:  # noqa: BLE001
         print(f"[lote:{juiz_key}] {cid}: não valida contra o schema ({e})")
         return None
@@ -145,20 +179,26 @@ def _validar(cid: str, txt: str, juiz_key: str) -> judge.Extracao | None:
 # Submissão
 # --------------------------------------------------------------------------
 
-def submeter(juiz: Juiz, itens: list[ItemLote]) -> str:
+# Teto de saída. No modo conversa a chamada devolve os achados de TODOS os
+# turnos de uma vez, então precisa de bem mais espaço que no modo turno — e um
+# teto curto não dá erro, dá JSON truncado, que falha na validação em silêncio.
+MAX_SAIDA = {"turno": 8192, "conversa": 32768}
+
+
+def submeter(juiz: Juiz, itens: list[ItemLote], modo: str = "turno") -> str:
     if juiz.provider == "anthropic":
-        return _submeter_anthropic(juiz, itens)
+        return _submeter_anthropic(juiz, itens, modo)
     if juiz.provider == "openai":
-        return _submeter_openai(juiz, itens)
+        return _submeter_openai(juiz, itens, modo)
     if juiz.provider == "google":
-        return _submeter_google(juiz, itens)
+        return _submeter_google(juiz, itens, modo)
     raise NotImplementedError(
         f"lote ainda não implementado para {juiz.provider!r} "
         f"(use o modo síncrono para esse juiz)"
     )
 
 
-def _submeter_google(juiz: Juiz, itens: list[ItemLote]) -> str:
+def _submeter_google(juiz: Juiz, itens: list[ItemLote], modo: str = "turno") -> str:
     from google.genai import types as T
 
     from . import llm
@@ -176,8 +216,10 @@ def _submeter_google(juiz: Juiz, itens: list[ItemLote]) -> str:
             "config": T.GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
-                response_schema=judge.Extracao,
-                max_output_tokens=8192,
+                response_schema=esquema_do_modo(modo),
+                max_output_tokens=MAX_SAIDA[modo],
+                # `effort` do Juiz vira o nível de raciocínio do Gemini.
+                thinking_config=T.ThinkingConfig(thinking_level=juiz.effort),
             ),
         }
         for it in itens
@@ -186,20 +228,21 @@ def _submeter_google(juiz: Juiz, itens: list[ItemLote]) -> str:
     return job.name
 
 
-def _submeter_anthropic(juiz: Juiz, itens: list[ItemLote]) -> str:
+def _submeter_anthropic(juiz: Juiz, itens: list[ItemLote], modo: str = "turno") -> str:
     client = _anthropic_client()
     reqs = [
         {
             "custom_id": it.custom_id,
             "params": {
                 "model": juiz.model,
-                "max_tokens": 16000,
+                # o raciocínio adaptativo cabe no mesmo teto da saída
+                "max_tokens": MAX_SAIDA[modo] + 16000,
                 "thinking": {"type": "adaptive"},
                 "output_config": {
                     "effort": juiz.effort,
                     "format": {
                         "type": "json_schema",
-                        "schema": _schema(),
+                        "schema": _schema(modo),
                     },
                 },
                 "messages": [{"role": "user", "content": it.prompt}],
@@ -211,7 +254,7 @@ def _submeter_anthropic(juiz: Juiz, itens: list[ItemLote]) -> str:
     return lote.id
 
 
-def _submeter_openai(juiz: Juiz, itens: list[ItemLote]) -> str:
+def _submeter_openai(juiz: Juiz, itens: list[ItemLote], modo: str = "turno") -> str:
     import io
 
     client = _openai_client()
@@ -229,7 +272,7 @@ def _submeter_openai(juiz: Juiz, itens: list[ItemLote]) -> str:
                     "format": {
                         "type": "json_schema",
                         "name": "extracao",
-                        "schema": _schema(),
+                        "schema": _schema(modo),
                     }
                 },
             },
@@ -237,6 +280,16 @@ def _submeter_openai(juiz: Juiz, itens: list[ItemLote]) -> str:
     buf = io.BytesIO("\n".join(linhas).encode("utf-8"))
     buf.name = "lote.jsonl"
     arq = client.files.create(file=buf, purpose="batch")
+    # O upload é assíncrono: criar o lote antes de o arquivo ficar `processed`
+    # falha com "Cannot find file ...", e o lote nasce morto (visto em 31/08).
+    fim = time.time() + 300
+    while time.time() < fim:
+        st = client.files.retrieve(arq.id).status
+        if st == "processed":
+            break
+        if st == "error":
+            raise RuntimeError(f"upload do lote falhou: {arq.id}")
+        time.sleep(2)
     lote = client.batches.create(
         input_file_id=arq.id, endpoint="/v1/responses",
         completion_window="24h",
@@ -272,13 +325,13 @@ def estado(juiz: Juiz, lote_id: str) -> str:
     raise NotImplementedError(juiz.provider)
 
 
-def coletar(juiz: Juiz, lote_id: str) -> dict[str, judge.Extracao]:
+def coletar(juiz: Juiz, lote_id: str, modo: str = "turno") -> dict:
     """Resultados do lote, por `custom_id`.
 
     Os resultados voltam FORA DE ORDEM nos dois provedores — por isso o
     dicionário é indexado pelo custom_id, nunca pela posição.
     """
-    out: dict[str, judge.Extracao] = {}
+    out: dict = {}
     if juiz.provider == "anthropic":
         for r in _anthropic_client().messages.batches.results(lote_id):
             if r.result.type != "succeeded":
@@ -287,7 +340,7 @@ def coletar(juiz: Juiz, lote_id: str) -> dict[str, judge.Extracao]:
                 txt = getattr(bloco, "text", None)
                 if not txt:
                     continue
-                ext = _validar(r.custom_id, txt, juiz.key)
+                ext = _validar(r.custom_id, txt, juiz.key, modo)
                 if ext is not None:
                     out[r.custom_id] = ext
                 break
@@ -306,7 +359,7 @@ def coletar(juiz: Juiz, lote_id: str) -> dict[str, judge.Extracao]:
             corpo = (d.get("response") or {}).get("body") or {}
             txt = _texto_openai(corpo)
             if cid and txt:
-                ext = _validar(cid, txt, juiz.key)
+                ext = _validar(cid, txt, juiz.key, modo)
                 if ext is not None:
                     out[cid] = ext
         return out
@@ -323,7 +376,7 @@ def coletar(juiz: Juiz, lote_id: str) -> dict[str, judge.Extracao]:
             txt = getattr(resp, "text", None)
             if not txt:
                 continue
-            ext = _validar(cid, txt, juiz.key)
+            ext = _validar(cid, txt, juiz.key, modo)
             if ext is not None:
                 out[cid] = ext
         return out
