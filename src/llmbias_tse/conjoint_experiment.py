@@ -132,7 +132,9 @@ def _snapshot_rubrics(store: RunStore, eixos: list[str]) -> dict[str, RubricGrid
 
 
 def _conferir_plano_compativel(plano: dict, eixos, desenho_corrida: str,
-                               calendario: corridas.Calendario) -> None:
+                               calendario: corridas.Calendario,
+                               balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
+                               ) -> None:
     """Retomar uma rodada antiga NÃO pode trocar o estímulo no meio.
 
     O plano é recalculado a cada execução e o arquivo serve de registro, então
@@ -159,11 +161,15 @@ def _conferir_plano_compativel(plano: dict, eixos, desenho_corrida: str,
             f"  - para coletar com a correção: use um --run-id novo."
         )
     cal_anterior = plano.get("calendario") or {}
-    if anterior != desenho_corrida or cal_anterior != calendario.to_dict():
+    bal_anterior = plano.get("balanceamento_corrida",
+                             corridas.BALANCEAMENTO_PADRAO)
+    if (anterior != desenho_corrida or cal_anterior != calendario.to_dict()
+            or bal_anterior != balanceamento):
         raise SystemExit(
             f"[conjoint] ABORTADO: o plano desta rodada foi montado com "
-            f"desenho={anterior!r} e calendário={cal_anterior}, e agora a "
-            f"execução pede desenho={desenho_corrida!r} e "
+            f"desenho={anterior!r}, balanceamento={bal_anterior!r} e "
+            f"calendário={cal_anterior}, e agora a execução pede "
+            f"desenho={desenho_corrida!r}, balanceamento={balanceamento!r} e "
             f"calendário={calendario.to_dict()}. Mudar isso no meio troca a "
             f"pergunta. Use um --run-id novo."
         )
@@ -175,6 +181,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                         min_temas: int = DEFAULT_MIN_TEMAS,
                         desenho_corrida: str = corridas.DESENHO_PADRAO,
                         calendario: corridas.Calendario | None = None,
+                        balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
                         ) -> tuple[dict[str, dict[str, tuple]],
                                    dict[str, dict[str, dict[str, bool]]],
                                    dict[str, dict[str, corridas.Corrida]]]:
@@ -208,7 +215,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                 f"perguntas que as conversas já coletadas."
             )
         _conferir_plano_compativel(plano_anterior, eixos, desenho_corrida,
-                                   calendario)
+                                   calendario, balanceamento)
 
     roteiros: dict[str, dict[str, tuple]] = {}
     temas_plan: dict[str, dict[str, dict[str, bool]]] = {}
@@ -217,7 +224,8 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
     for e in eixos:
         # A corrida é do eixo voto e independe de haver instrumento.
         corridas_plan[e] = (
-            corridas.sortear_corridas(pids, seed=seed, desenho=desenho_corrida)
+            corridas.sortear_corridas(pids, seed=seed, desenho=desenho_corrida,
+                                      balanceamento=balanceamento)
             if e in corridas.EIXOS_COM_CORRIDA else {}
         )
         inst = get_instrumento(e)
@@ -248,11 +256,19 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                   f"piso={min_temas}) — perfis por tema: {cont} | "
                   f"média de temas/conversa: {media:.2f}")
         if corridas_plan.get(e):
-            dist = collections.Counter(
-                c.colunas()["corrida"] for c in corridas_plan[e].values()
-            )
-            print(f"[conjoint]   eixo {e}: corridas sorteadas "
-                  f"(desenho={desenho_corrida}) — {dict(dist)}")
+            cob = corridas.resumo_cobertura(corridas_plan[e], desenho_corrida)
+            print(f"[conjoint]   eixo {e}: corridas atribuídas "
+                  f"(desenho={desenho_corrida}, balanceamento={balanceamento}) "
+                  f"— por cargo: {cob['por_cargo']} | cobertura: "
+                  f"{cob['corridas_cobertas']}/{cob['corridas_possiveis']}")
+            if cob["faltando"]:
+                # Cobertura incompleta não é erro (com poucos perfis é
+                # inevitável), mas não pode ficar invisível: sem esta linha a
+                # rodada sai parecendo que cobriu o país.
+                print(f"[conjoint]     sem nenhuma conversa: "
+                      f"{len(cob['faltando'])} corrida(s) — "
+                      f"{', '.join(cob['faltando'][:8])}"
+                      + (" ..." if len(cob["faltando"]) > 8 else ""))
 
     if path.exists():
         print(f"[conjoint] reusando plano de coleta de {path}")
@@ -287,6 +303,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
             # eles que `_conferir_plano_compativel` barra uma retomada que
             # trocaria a pergunta no meio da coleta.
             "desenho_corrida": desenho_corrida,
+            "balanceamento_corrida": balanceamento,
             "calendario": calendario.to_dict(),
             "platforms": list(platforms), "eixos": list(eixos),
             "conversas": conversas, "avisos": avisos,
@@ -982,6 +999,7 @@ def run(n_profiles: int = 3, seed: int = 2026,
         juizes_keys: list[str] | None = None, judge_mode: str = "turno",
         com_primeira_mensagem: bool = True,
         desenho_corrida: str = corridas.DESENHO_PADRAO,
+        balanceamento_corrida: str = corridas.BALANCEAMENTO_PADRAO,
         calendario: corridas.Calendario | None = None,
         phase: str = "all") -> int:
     platforms = platforms or list(DEFAULT_PLATFORMS)
@@ -1021,6 +1039,7 @@ def run(n_profiles: int = 3, seed: int = 2026,
         store, profiles, platforms, eixos, seed, n_turns,
         tema_prob=tema_prob, min_temas=min_temas,
         desenho_corrida=desenho_corrida, calendario=calendario,
+        balanceamento=balanceamento_corrida,
     )
 
     if phase == "plan":

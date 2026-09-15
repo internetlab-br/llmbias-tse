@@ -107,11 +107,15 @@ def main() -> None:
                       help="piso de temas por conversa (default 1: sem tema não "
                            "há pergunta a fazer nos eixos com instrumento)")
     p_cj.add_argument("--desenho-corrida", default=None,
-                      help="qual corrida o eixo voto sorteia por conversa: "
-                           "so_presidente (default), majoritarias "
-                           "(presidente+governador+senador) ou cinco_cargos. "
-                           "Os que exigem UF precisam da tabela de UFs "
-                           "preenchida em corridas.py (decisão do InternetLab)")
+                      help="quais corridas o eixo voto usa: majoritarias "
+                           "(default: presidente+governador+senador), "
+                           "so_presidente ou cinco_cargos")
+    p_cj.add_argument("--balanceamento-corrida", default=None,
+                      choices=["cargo", "celula", "iid"],
+                      help="como os perfis se repartem entre as corridas: "
+                           "cargo (default, N igual por cargo), celula (N igual "
+                           "por corrida) ou iid (sorteio independente, sem "
+                           "garantia de cobertura)")
     p_cj.add_argument("--juizes", nargs="+", default=None,
                       help="painel de juízes: 'todos' (gemini opus gpt) ou uma "
                            "lista (ex.: gemini opus). Sem a flag, roda só o "
@@ -161,6 +165,8 @@ def main() -> None:
             com_primeira_mensagem=not args.sem_primeira_mensagem,
             **({"desenho_corrida": args.desenho_corrida}
                if args.desenho_corrida else {}),
+            **({"balanceamento_corrida": args.balanceamento_corrida}
+               if args.balanceamento_corrida else {}),
             phase=args.phase,
         ))
     elif args.cmd == "tools":

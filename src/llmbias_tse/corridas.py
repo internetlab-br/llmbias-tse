@@ -38,6 +38,8 @@ própria na base — quem analisar decide se a trata como fator ou como controle
 
 from __future__ import annotations
 
+import collections
+import random
 from dataclasses import asdict, dataclass
 from typing import Sequence
 
@@ -178,14 +180,42 @@ class UF:
                 "a": f"na {self.nome}"}[self.artigo]
 
 
-# A TABELA DE UFs — PENDENTE.
+# A TABELA DE UFs — as 27, decisão da equipe em 15/09/2026, A CONFIRMAR.
 #
-# Quais UFs entram no sorteio é a decisão 2 da nota, do InternetLab, e a tabela
-# vem da equipe. Enquanto ela não chega, a lista fica VAZIA de propósito:
-# `sortear_corrida` levanta erro ao sortear um cargo que exige UF sem tabela,
-# em vez de inventar um estado — que é exatamente o modo de falha que esta
-# correção existe para eliminar.
-UFS: tuple[UF, ...] = ()
+# O `artigo` não é escolha de ninguém: é fato gramatical, e dele saem as três
+# formas contraídas. Os casos sem artigo são os que o uso brasileiro consagra
+# sem ele ("de Alagoas", "de Goiás", "em Mato Grosso", "de Minas Gerais",
+# "de Pernambuco", "de Rondônia", "de Roraima", "de Santa Catarina",
+# "de São Paulo", "de Sergipe").
+UFS: tuple[UF, ...] = (
+    UF("AC", "Acre", "o"),
+    UF("AL", "Alagoas", ""),
+    UF("AP", "Amapá", "o"),
+    UF("AM", "Amazonas", "o"),
+    UF("BA", "Bahia", "a"),
+    UF("CE", "Ceará", "o"),
+    UF("DF", "Distrito Federal", "o"),
+    UF("ES", "Espírito Santo", "o"),
+    UF("GO", "Goiás", ""),
+    UF("MA", "Maranhão", "o"),
+    UF("MT", "Mato Grosso", ""),
+    UF("MS", "Mato Grosso do Sul", ""),
+    UF("MG", "Minas Gerais", ""),
+    UF("PA", "Pará", "o"),
+    UF("PB", "Paraíba", "a"),
+    UF("PR", "Paraná", "o"),
+    UF("PE", "Pernambuco", ""),
+    UF("PI", "Piauí", "o"),
+    UF("RJ", "Rio de Janeiro", "o"),
+    UF("RN", "Rio Grande do Norte", "o"),
+    UF("RS", "Rio Grande do Sul", "o"),
+    UF("RO", "Rondônia", ""),
+    UF("RR", "Roraima", ""),
+    UF("SC", "Santa Catarina", ""),
+    UF("SP", "São Paulo", ""),
+    UF("SE", "Sergipe", ""),
+    UF("TO", "Tocantins", "o"),
+)
 
 UFS_POR_SIGLA: dict[str, UF] = {u.sigla: u for u in UFS}
 
@@ -206,9 +236,35 @@ DESENHOS: dict[str, tuple[str, ...]] = {
                      "deputado_federal", "deputado_estadual"),
 }
 
-# Padrão até a decisão: o único desenho que roda sem a tabela de UFs. Não é
-# recomendação — é o que não trava a coleta enquanto a decisão não chega.
-DESENHO_PADRAO = "so_presidente"
+# Decisão da equipe em 15/09/2026, A CONFIRMAR pela pesquisadora que seguir com
+# o PR: as três corridas majoritárias, com as 27 UFs.
+DESENHO_PADRAO = "majoritarias"
+
+# COMO OS PERFIS SE REPARTEM ENTRE AS CORRIDAS.
+#
+# `iid` era o comportamento original: cada perfil sorteia a sua corrida de forma
+# independente. O problema é a cobertura. Com as majoritárias e 27 UFs são 55
+# corridas possíveis; sorteando 100 perfis de forma independente, o número
+# esperado de corridas que NUNCA seriam perguntadas é ~9. Nove disputas fora da
+# rodada por azar, não por desenho.
+#
+# `cargo` e `celula` são atribuições BALANCEADAS: monta-se a fila de corridas
+# com as quotas certas e permuta-se com a semente. A cobertura passa a ser
+# garantida sempre que houver perfis suficientes. O preço é o mesmo do piso de
+# temas: as conversas deixam de ser independentes entre si (quem já saiu não
+# volta na mesma proporção), em troca de não haver buraco.
+#
+# A diferença entre as duas está em quem recebe peso igual — e ela é grande:
+#
+#   celula  cada uma das 55 corridas com o mesmo N. A disputa presidencial,
+#           que é uma corrida entre 55, fica com ~2 conversas em 100.
+#   cargo   cada CARGO com o mesmo N (um terço cada). A presidencial fica com
+#           ~33; governador e senador repartem os seus 33 entre as 27 UFs,
+#           ~1,2 por UF — cobertura garantida, comparação entre UFs não.
+#
+# A equipe escolheu `cargo` em 15/09/2026, A CONFIRMAR.
+BALANCEAMENTOS = ("cargo", "celula", "iid")
+BALANCEAMENTO_PADRAO = "cargo"
 
 # Quais eixos recebem corrida atribuída. Só o voto, e é isso que mantém os
 # outros dois intocados: sem corrida não há Bloco 1, e sem Bloco 1 o prompt de
@@ -242,36 +298,148 @@ class Corrida:
         return {"cargo": self.cargo, "uf": self.uf, "descricao": self.descricao}
 
 
-def sortear_corrida(profile_id: str, seed: int = 2026,
-                    desenho: str = DESENHO_PADRAO) -> Corrida:
-    """Sorteia a corrida de UM perfil.
-
-    Determinístico em (semente, perfil) e cego à plataforma — a mesma célula do
-    conjoint recebe a mesma corrida nas sete. O rótulo "corrida" na semente do
-    RNG isola este sorteio do de temas e do de exemplares: acrescentá-lo não
-    desloca nenhum roteiro já planejado.
-    """
+def _cargos_do_desenho(desenho: str) -> tuple[str, ...]:
     cargos = DESENHOS.get(desenho)
     if cargos is None:
         raise ValueError(
             f"desenho de corrida {desenho!r} desconhecido; "
             f"disponíveis: {sorted(DESENHOS)}"
         )
-    rng = _rng_for(seed, "corrida", desenho, profile_id)
-    cargo = CARGOS[rng.choice(list(cargos))]
-    if not cargo.exige_uf:
-        return Corrida(cargo=cargo.key)
+    return cargos
+
+
+def _exigir_tabela_ufs(cargo_key: str, desenho: str) -> None:
+    """A tabela de UFs vazia ABORTA — nunca inventa um estado."""
     if not UFS:
         raise ValueError(
-            f"o desenho {desenho!r} sorteia {cargo.key!r}, que exige UF, mas a "
-            f"tabela `corridas.UFS` está vazia. Preencha-a com a tabela da "
-            f"equipe antes de rodar (decisão 2 da nota metodológica)."
+            f"o desenho {desenho!r} usa {cargo_key!r}, que exige UF, mas a "
+            f"tabela `corridas.UFS` está vazia. Preencha-a antes de rodar "
+            f"(decisão 2 da nota metodológica)."
         )
+
+
+def celulas(desenho: str = DESENHO_PADRAO) -> tuple[Corrida, ...]:
+    """Todas as corridas possíveis do desenho — o denominador da cobertura."""
+    out: list[Corrida] = []
+    for key in _cargos_do_desenho(desenho):
+        cargo = CARGOS[key]
+        if not cargo.exige_uf:
+            out.append(Corrida(key))
+            continue
+        _exigir_tabela_ufs(key, desenho)
+        out.extend(Corrida(key, u.sigla) for u in UFS)
+    return tuple(out)
+
+
+def _quotas(total: int, n_grupos: int, rng: random.Random) -> list[int]:
+    """Divide `total` em `n_grupos` partes o mais iguais possível.
+
+    A sobra vai para grupos SORTEADOS, não para os primeiros da lista: do
+    contrário o Acre — primeira UF da tabela, por ordem alfabética de sigla —
+    levaria a conversa extra em toda rodada, e um detalhe de implementação
+    viraria desequilíbrio fixo do desenho.
+    """
+    base, resto = divmod(total, n_grupos)
+    q = [base] * n_grupos
+    for i in rng.sample(range(n_grupos), resto):
+        q[i] += 1
+    return q
+
+
+def _fila_por_cargo(n: int, cargos: Sequence[str], desenho: str,
+                    rng: random.Random) -> list[Corrida]:
+    """Cada CARGO com o mesmo N; dentro do cargo, as UFs repartem por igual."""
+    fila: list[Corrida] = []
+    for key, quota in zip(cargos, _quotas(n, len(cargos), rng)):
+        cargo = CARGOS[key]
+        if not cargo.exige_uf:
+            fila.extend([Corrida(key)] * quota)
+            continue
+        _exigir_tabela_ufs(key, desenho)
+        for uf, q in zip(UFS, _quotas(quota, len(UFS), rng)):
+            fila.extend([Corrida(key, uf.sigla)] * q)
+    return fila
+
+
+def _fila_por_celula(n: int, desenho: str,
+                     rng: random.Random) -> list[Corrida]:
+    """Cada CORRIDA com o mesmo N (a presidencial vale uma entre 55)."""
+    cels = celulas(desenho)
+    fila: list[Corrida] = []
+    for corrida, q in zip(cels, _quotas(n, len(cels), rng)):
+        fila.extend([corrida] * q)
+    return fila
+
+
+def sortear_corrida(profile_id: str, seed: int = 2026,
+                    desenho: str = DESENHO_PADRAO) -> Corrida:
+    """A corrida de UM perfil, sorteada de forma INDEPENDENTE (`iid`).
+
+    Determinística em (semente, perfil) e cega à plataforma. Não garante
+    cobertura: é o modo `iid` de `sortear_corridas`, mantido porque é o que
+    permite acrescentar perfis a uma rodada sem mexer nos que já existem.
+    """
+    desenho_cargos = _cargos_do_desenho(desenho)
+    rng = _rng_for(seed, "corrida", desenho, profile_id)
+    cargo = CARGOS[rng.choice(list(desenho_cargos))]
+    if not cargo.exige_uf:
+        return Corrida(cargo=cargo.key)
+    _exigir_tabela_ufs(cargo.key, desenho)
     return Corrida(cargo=cargo.key, uf=rng.choice(list(UFS)).sigla)
 
 
 def sortear_corridas(profile_ids: Sequence[str], seed: int = 2026,
-                     desenho: str = DESENHO_PADRAO) -> dict[str, Corrida]:
-    """A corrida de cada perfil da rodada, na mesma chamada do plano."""
-    return {pid: sortear_corrida(pid, seed=seed, desenho=desenho)
-            for pid in profile_ids}
+                     desenho: str = DESENHO_PADRAO,
+                     balanceamento: str = BALANCEAMENTO_PADRAO,
+                     ) -> dict[str, Corrida]:
+    """A corrida de cada perfil da rodada, resolvida de uma vez.
+
+    De uma vez porque o balanceamento é uma propriedade do CONJUNTO: não dá
+    para garantir que toda corrida apareça olhando um perfil por vez. Continua
+    determinístico em (semente, desenho, balanceamento, conjunto de perfis) e
+    cego à plataforma — a mesma célula do conjoint recebe a mesma corrida nas
+    sete.
+
+    Os ids são ordenados antes da atribuição, de modo que a ordem em que a
+    lista chega não muda o resultado. O contrapartida de balancear: a corrida de
+    um perfil passa a depender de QUANTOS perfis a rodada tem, então acrescentar
+    perfis no meio da rodada remexe as atribuições. A coleta não faz isso — os
+    perfis vêm de `profiles.json`, congelado na primeira execução —, e é por
+    isso que o plano registra o balanceamento e a retomada o confere.
+    """
+    if balanceamento == "iid":
+        return {pid: sortear_corrida(pid, seed=seed, desenho=desenho)
+                for pid in profile_ids}
+    if balanceamento not in BALANCEAMENTOS:
+        raise ValueError(
+            f"balanceamento {balanceamento!r} desconhecido; "
+            f"disponíveis: {list(BALANCEAMENTOS)}"
+        )
+    pids = sorted(profile_ids)
+    cargos = _cargos_do_desenho(desenho)
+    rng = _rng_for(seed, "corrida", desenho, balanceamento)
+    if balanceamento == "cargo":
+        fila = _fila_por_cargo(len(pids), cargos, desenho, rng)
+    else:
+        fila = _fila_por_celula(len(pids), desenho, rng)
+    rng.shuffle(fila)
+    return dict(zip(pids, fila))
+
+
+def resumo_cobertura(atribuidas: dict[str, Corrida],
+                     desenho: str = DESENHO_PADRAO) -> dict:
+    """Quantas corridas do desenho a rodada de fato cobre.
+
+    Cobertura incompleta não é erro — com poucos perfis é inevitável —, mas tem
+    de aparecer no log, senão a rodada sai achando que cobriu o país.
+    """
+    todas = celulas(desenho)
+    vistas = {(c.cargo, c.uf) for c in atribuidas.values()}
+    faltando = [c for c in todas if (c.cargo, c.uf) not in vistas]
+    return {
+        "corridas_possiveis": len(todas),
+        "corridas_cobertas": len(todas) - len(faltando),
+        "faltando": [c.colunas()["corrida"] for c in faltando],
+        "por_cargo": dict(sorted(collections.Counter(
+            c.cargo for c in atribuidas.values()).items())),
+    }

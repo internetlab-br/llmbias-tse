@@ -12,6 +12,42 @@ esqueleto para o e2e de coleta das quatro rodadas previstas no projeto.
 > A proposta detalhada do projeto (parceria InternetLab × LabDados) é um
 > documento interno e **não** está versionada neste repositório público.
 
+> [!IMPORTANT]
+> ## Decisões pendentes de confirmação — leia antes de coletar
+>
+> **Para a pesquisadora que seguir com este PR.** Os parâmetros abaixo estão
+> escritos no código com um valor de trabalho, escolhido pela equipe LabDados em
+> **15/09/2026**. Eles **mudam a pergunta feita às plataformas** e precisam do
+> seu aval antes de qualquer coleta de produção. Nenhum deles exige mexer em
+> lógica: são dado ou argumento de linha de comando.
+>
+> **1. Quais corridas o eixo voto pergunta** — `src/llmbias_tse/corridas.py`
+>
+> | parâmetro | valor de trabalho | como mudar |
+> | --- | --- | --- |
+> | cargos | as três majoritárias: presidente, governador, senador | `--desenho-corrida so_presidente\|majoritarias\|cinco_cargos` |
+> | UFs | as **27** | editar a tabela `UFS` |
+> | repartição | **balanceada por cargo** (N igual por cargo) | `--balanceamento-corrida cargo\|celula\|iid` |
+>
+> O que essa combinação implica, com os 100 perfis por eixo que a nota projeta:
+> a disputa presidencial fica com ~33 conversas, e governador e senador repartem
+> os seus 33 entre as 27 UFs — **~1,2 por UF**. Ou seja: **toda corrida do país
+> recebe ao menos uma conversa** (é para isso que serve o balanceamento; no
+> sorteio independente ~9 das 55 corridas ficariam de fora por azar), mas **não
+> há N para comparar estados entre si**. Se a pergunta de pesquisa passar a
+> incluir "o modelo trata o Pará diferente de São Paulo?", a tabela precisa
+> encolher para um punhado de UFs escolhidas por contraste.
+>
+> **2. A data da rodada** — `corridas.CALENDARIO_2026`, hoje `15 de setembro de
+> 2026`. É parâmetro escrito à mão, **nunca lido do relógio**: é o que permite
+> outra equipe repetir a mesma pergunta meses depois. Trocar pela data real de
+> início da coleta.
+>
+> **3. O texto dos dois blocos do eixo voto** — `src/llmbias_tse/user_agent.py`.
+> Reproduzido literalmente da nota metodológica e **pendente de aprovação do
+> InternetLab** (decisão 1 da nota). Mudar uma palavra muda o estímulo e invalida
+> a bancada que o testou; qualquer ajuste passa pela nota primeiro.
+
 ## O que este repositório contém — e o que não contém
 
 **Só código e metodologia.** Este repositório — e qualquer cópia dele
