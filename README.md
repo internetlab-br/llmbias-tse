@@ -12,6 +12,30 @@ esqueleto para o e2e de coleta das quatro rodadas previstas no projeto.
 > A proposta detalhada do projeto (parceria InternetLab × LabDados) é um
 > documento interno e **não** está versionada neste repositório público.
 
+## O que este repositório contém — e o que não contém
+
+**Só código e metodologia.** Este repositório — e qualquer cópia dele
+distribuída como `git bundle` ou arquivo — carrega cerca de **meio megabyte**:
+o harness de coleta, os instrumentos, as rubricas, os prompts e os testes. Nada
+além disso. O que fica de fora está no `.gitignore` por decisão, não por
+esquecimento:
+
+| fora do repositório | por quê |
+| --- | --- |
+| `data/` — as conversas coletadas e os artefatos HTML/PNG | dezenas de GB de dado de pesquisa, com circulação própria |
+| `tmp/profile` — o perfil do Chrome | **cookies de sessão logada**: quem recebe o arquivo entra nas contas |
+| `.env` — chaves de API | segredo |
+| `docs/interno/`, `handoff/` | material operacional — nomeia contas e procedimento, e procedimento não é metodologia |
+
+A proporção dá a medida: numa máquina de coleta, o código é menos de 0,01% do
+que existe no diretório. Por isso **nunca compacte a pasta para compartilhar o
+projeto** — use `git bundle`, `git archive` ou o clone do GitHub, que carregam
+só o que está versionado.
+
+Reproduzir uma rodada não exige receber nenhum desses dados: o plano de coleta
+é recalculado a partir da semente, e é justamente isso que torna o resultado
+conferível por terceiros.
+
 ## Ideia em uma frase
 
 Abre o **Google Chrome real** numa porta de debug (CDP) com um **perfil
