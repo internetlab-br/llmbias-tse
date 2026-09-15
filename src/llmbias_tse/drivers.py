@@ -17,6 +17,7 @@ WhatsApp Web é suficientemente diferente para sobrescrever send().
 from __future__ import annotations
 
 import os
+import random
 import re
 import time
 
@@ -126,7 +127,21 @@ class BaseDriver:
                 backoff = min(backoff * 2, 600.0)
                 continue
             try:
-                return self._submit_once(page, prompt, user_baseline)
+                resposta = self._submit_once(page, prompt, user_baseline)
+                # O que a plataforma devolveu pode não ser resposta do modelo,
+                # e sim um aviso de bloqueio renderizado no fluxo da conversa.
+                # Gravar isso como resposta contamina a base em silêncio, então
+                # o turno FALHA — e não se re-tenta, porque re-tentar sob
+                # bloqueio só reforça o bloqueio.
+                marcador = capture.texto_de_bloqueio(resposta)
+                if marcador is not None:
+                    raise capture.PlataformaBloqueou(
+                        f"a plataforma devolveu aviso de bloqueio "
+                        f"({marcador!r}) no lugar da resposta"
+                    )
+                return resposta
+            except capture.PlataformaBloqueou:
+                raise
             except Exception as e:
                 if capture.is_rate_limited(page):
                     continue  # virou rate limit: volta pro topo e espera
@@ -148,6 +163,36 @@ class BaseDriver:
     # seguinte, e teto do clique no botão de enviar.
     pre_send_wait_s: float = 45.0
     submit_click_timeout_ms: int = 15000
+    # Faixa (ms) do atraso por tecla, sorteada a cada pedaço digitado.
+    # Ajustável por `LLMBIAS_TYPE_DELAY_MS` ("min,max").
+    type_delay_ms: tuple[float, float] = tuple(
+        float(x) for x in os.environ.get("LLMBIAS_TYPE_DELAY_MS", "18,55").split(",")
+    )
+
+    def _digitar(self, page, texto: str) -> None:
+        """Digita com cadência variável.
+
+        Antes era `keyboard.type(texto, delay=8)`: 8 ms constantes por tecla,
+        ~1500 palavras/min, sem variância, sem pausa e sem correção. Em
+        28/08/2026 o ChatGPT sinalizou a conta por "unusual activity" depois de
+        761 turnos com esse padrão. Aqui o texto sai em pedaços, com atraso por
+        tecla sorteado a cada pedaço e pausas entre eles, maiores em fim de
+        frase.
+
+        Continua BEM mais rápido que um humano: é compromisso entre reduzir a
+        assinatura de automação e manter a coleta viável, não imitação. Um
+        humano levaria ~3 min na mensagem mediana de 848 chars; aqui leva ~30 s.
+        """
+        lo, hi = self.type_delay_ms
+        restante = texto
+        while restante:
+            n = min(len(restante), random.randint(12, 40))
+            pedaco, restante = restante[:n], restante[n:]
+            page.keyboard.type(pedaco, delay=random.uniform(lo, hi))
+            pausa = random.uniform(0.08, 0.30)
+            if pedaco.rstrip().endswith((".", "?", "!", ":", ";")):
+                pausa += random.uniform(0.35, 1.10)
+            time.sleep(pausa)
 
     def _aguardar_ocioso(self, page) -> bool:
         """Espera o indicador de 'gerando' sumir. True se ficou ocioso."""
@@ -185,7 +230,7 @@ class BaseDriver:
                 page.keyboard.press("Delete")
             except Exception:
                 pass
-            page.keyboard.type(prompt, delay=8)
+            self._digitar(page, prompt)
             if not self.submit_selector:
                 page.keyboard.press("Enter")
                 return
@@ -339,13 +384,29 @@ class ChatGPTMomentary(ChatGPT):
 
     name = "chatgpt_momentary"
     new_chat_url = "https://chatgpt.com/?temporary-chat=true"
-    _confirm_needles = ["temporary chat", "conversa temporária"]
+    _confirm_needles = ["temporary chat", "conversa temporária",
+                        "chat temporário"]
 
     def _momentary_active(self, page) -> bool:
+        # Rótulo do cabeçalho: só existe no modo temporário e independe de
+        # idioma. Controle negativo (ago/2026): 0 no modo normal, 2 no
+        # temporário, 0 ao voltar.
+        try:
+            if page.locator("[data-testid='temporary-chat-label']").count() > 0:
+                return True
+        except Exception:
+            pass
+        # NB: o prefixo 'Turn off'/'Desativar' é o que DISCRIMINA. O botão de
+        # LIGAR existe no modo NORMAL com aria-label 'Temporary chat' /
+        # 'Chat temporário'; casar só 'chat temporário' aqui daria falso
+        # positivo e a coleta rodaria em modo normal (salva no histórico, usa
+        # memória) sem nada na base denunciando — o campo `mode` do registro é
+        # rótulo fixo do PLATFORM_DRIVERS, não medição.
         try:
             off = page.locator(
                 "button[aria-label*='Turn off temporary' i], "
-                "button[aria-label*='Desativar conversa temporária' i]"
+                "button[aria-label*='Desativar conversa temporária' i], "
+                "button[aria-label*='Desativar chat temporário' i]"
             )
             if off.count() > 0:
                 return True
@@ -878,7 +939,7 @@ class WhatsAppMetaAI(BaseDriver):
     def _send_raw(self, page, text: str) -> None:
         box = capture.first_visible(page, self.composer_selectors)
         box.click()
-        page.keyboard.type(text, delay=8)
+        self._digitar(page, text)
         page.keyboard.press("Enter")
 
     def reset(self, page) -> None:

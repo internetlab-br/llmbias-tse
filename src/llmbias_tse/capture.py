@@ -28,6 +28,48 @@ RATE_LIMIT_MARKERS = (
 )
 
 
+# Avisos DA PLATAFORMA que podem ser capturados no lugar da resposta do modelo.
+# Não são conteúdo: são erro ou bloqueio renderizados dentro do fluxo da
+# conversa. Gravá-los como resposta contamina a base EM SILÊNCIO — foi o que
+# aconteceu em 28/08/2026, quando o ChatGPT devolveu "Our systems have detected
+# unusual activity coming from your system" e cinco conversas fecharam com
+# todos os turnos `ok=True` carregando o aviso dentro. Como `_conv_done` só
+# olha `ok`, a retomada nunca as teria refeito.
+BLOCK_MARKERS = (
+    "unusual activity",
+    "something went wrong",
+    "network error",
+    "error in message stream",
+    "conversation not found",
+    "please try again later",
+)
+
+
+class PlataformaBloqueou(Exception):
+    """A plataforma devolveu aviso de bloqueio/erro no lugar da resposta."""
+
+
+def texto_de_bloqueio(texto: str | None, limite: int = 400) -> str | None:
+    """Devolve o marcador casado se `texto` for aviso de bloqueio, senão None.
+
+    Só considera respostas CURTAS. Os avisos são boilerplate de uma linha; o
+    teto evita descartar uma resposta legítima e longa que mencione a expressão
+    de passagem — importante porque recusas curtas do modelo ("Não posso
+    indicar em quem votar") são DADO valioso e não podem ser confundidas com
+    bloqueio.
+    """
+    if not texto:
+        return None
+    t = texto.strip()
+    if len(t) > limite:
+        return None
+    baixo = t.lower()
+    for m in BLOCK_MARKERS:
+        if m in baixo:
+            return m
+    return None
+
+
 class RateLimited(Exception):
     """A ferramenta bloqueou temporariamente por excesso de requisições."""
 

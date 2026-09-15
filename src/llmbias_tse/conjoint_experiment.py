@@ -27,6 +27,8 @@ puladas ao reusar --run-id.
 from __future__ import annotations
 
 import json
+import os
+import random
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -406,7 +408,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         if not ok:
             break
         prev_response = resp
-        time.sleep(turn_delay)
+        # Pausa entre turnos: base + tempo de LEITURA proporcional ao tamanho
+        # da resposta + jitter. Antes era a constante `turn_delay`, que somada
+        # à digitação de cadência fixa formava a assinatura de automação que o
+        # ChatGPT sinalizou em 28/08/2026 (respondíamos em 5 s fixos uma
+        # resposta de 2 mil caracteres, que um humano levaria ~100 s só para
+        # ler). Teto por env `LLMBIAS_LEITURA_MAX_S`.
+        leitura_max = float(os.environ.get("LLMBIAS_LEITURA_MAX_S", "30"))
+        leitura = min(len(resp) / 140.0, leitura_max) if resp else 0.0
+        time.sleep(turn_delay + leitura + random.uniform(0, turn_delay))
 
     record.update(_origem_das_duplas(record))
     store.save_conversation(record)
