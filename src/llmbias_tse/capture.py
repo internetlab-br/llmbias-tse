@@ -42,6 +42,16 @@ BLOCK_MARKERS = (
     "error in message stream",
     "conversation not found",
     "please try again later",
+    # Google (busca / AI Mode). A frase do Google é "unusual TRAFFIC", que o
+    # marcador "unusual activity" do ChatGPT NÃO casa — e a perna do AI Mode
+    # roda deslogada, que é exatamente a condição em que o Google interpõe a
+    # verificação de robô. Sem estas entradas o aviso entraria na base como
+    # resposta do modelo, com ok=True.
+    "unusual traffic",
+    "tráfego incomum",
+    "systems have detected unusual",
+    "not a robot",
+    "não é um robô",
 )
 
 
@@ -183,6 +193,34 @@ def wait_for_new_response(
     )
 
 
+# Lê `textContent` de um nó DEPOIS de descartar `script`/`style`/`template`/
+# `noscript`. `textContent` é obrigatório (ver last_text: `inner_text` volta
+# vazio com a janela ocluída), mas ele NÃO ignora script embutido, e
+# `inner_text` ignorava — foi essa a troca implícita que passou despercebida.
+#
+# Medido em 29/08/2026 nos 24 turnos do Google AI Mode: um `<script>` de
+# carregador de imagem em base64 dentro do container de resposta levou UM turno
+# de 2.842 chars de prosa a 23.328 gravados — 87% de lixo, indistinguível de
+# resposta longa em qualquer contagem por tamanho. Não é específico do AI Mode:
+# qualquer container de resposta que embuta script vazaria igual.
+_JS_TEXTO_SEM_SCRIPT = (
+    "(el) => { const c = el.cloneNode(true); "
+    "c.querySelectorAll('script,style,template,noscript')"
+    ".forEach(n => n.remove()); return c.textContent || ''; }"
+)
+
+
+def _texto_do_no(loc) -> str:
+    """textContent do nó, sem script/style. Cai no textContent cru se falhar."""
+    try:
+        return loc.evaluate(_JS_TEXTO_SEM_SCRIPT) or ""
+    except Exception:
+        try:
+            return loc.text_content() or ""
+        except Exception:
+            return ""
+
+
 def last_text(page, selectors) -> str:
     """Texto do ÚLTIMO balão de resposta.
 
@@ -203,9 +241,9 @@ def last_text(page, selectors) -> str:
             # NB: guardar pelo count do locator BASE, não do `.last`. Com a
             # janela ocluída, `base.last.count()` chega a voltar 0 mesmo com
             # o elemento presente (base.count()==1) — e aí a leitura era
-            # pulada. base.count() é confiável; base.last.text_content() lê.
+            # pulada. base.count() é confiável; base.last lê.
             if base.count() > 0:
-                txt = base.last.text_content() or ""
+                txt = _texto_do_no(base.last)
                 if txt.strip():
                     return txt
         except Exception:

@@ -127,7 +127,9 @@ class BaseDriver:
                 backoff = min(backoff * 2, 600.0)
                 continue
             try:
-                resposta = self._submit_once(page, prompt, user_baseline)
+                resposta = self.limpar_resposta(
+                    self._submit_once(page, prompt, user_baseline)
+                )
                 # O que a plataforma devolveu pode não ser resposta do modelo,
                 # e sim um aviso de bloqueio renderizado no fluxo da conversa.
                 # Gravar isso como resposta contamina a base em silêncio, então
@@ -166,8 +168,18 @@ class BaseDriver:
     # Faixa (ms) do atraso por tecla, sorteada a cada pedaço digitado.
     # Ajustável por `LLMBIAS_TYPE_DELAY_MS` ("min,max").
     type_delay_ms: tuple[float, float] = tuple(
-        float(x) for x in os.environ.get("LLMBIAS_TYPE_DELAY_MS", "18,55").split(",")
+        float(x) for x in os.environ.get("LLMBIAS_TYPE_DELAY_MS", "10,30").split(",")
     )
+
+    def limpar_resposta(self, texto: str) -> str:
+        """Remove cromo de UI que o seletor de conteúdo arrasta junto.
+
+        Identidade por padrão: só os drivers cujo container de resposta engloba
+        rodapé/botões da própria interface precisam sobrescrever. Roda ANTES da
+        checagem de aviso de bloqueio, para o cromo não mascarar nem disparar um
+        marcador.
+        """
+        return texto
 
     def _digitar(self, page, texto: str) -> None:
         """Digita com cadência variável.
@@ -181,17 +193,25 @@ class BaseDriver:
 
         Continua BEM mais rápido que um humano: é compromisso entre reduzir a
         assinatura de automação e manter a coleta viável, não imitação. Um
-        humano levaria ~3 min na mensagem mediana de 848 chars; aqui leva ~30 s.
+        humano levaria ~3 min na mensagem mediana de 848 chars; aqui leva ~20 s.
+
+        Cadência apertada em 29/08/2026 (era 18-55 ms/tecla, pedaços de 12-40,
+        pausas de 0,08-0,30 s: ~40 s na mensagem mediana). O que a assinatura
+        de automação de 28/08 tinha não era lentidão, era CONSTÂNCIA — 8 ms
+        fixos, sem variância nem pausa. A variância e as pausas de fim de frase
+        continuam aqui; só o patamar subiu, de ~330 para ~600 palavras/min.
+        Para voltar ao ritmo antigo numa plataforma sensível, sem editar
+        código: `LLMBIAS_TYPE_DELAY_MS=18,55`.
         """
         lo, hi = self.type_delay_ms
         restante = texto
         while restante:
-            n = min(len(restante), random.randint(12, 40))
+            n = min(len(restante), random.randint(20, 60))
             pedaco, restante = restante[:n], restante[n:]
             page.keyboard.type(pedaco, delay=random.uniform(lo, hi))
-            pausa = random.uniform(0.08, 0.30)
+            pausa = random.uniform(0.04, 0.16)
             if pedaco.rstrip().endswith((".", "?", "!", ":", ";")):
-                pausa += random.uniform(0.35, 1.10)
+                pausa += random.uniform(0.15, 0.50)
             time.sleep(pausa)
 
     def _aguardar_ocioso(self, page) -> bool:
@@ -804,6 +824,76 @@ class GoogleAIMode(BaseDriver):
     settle_s = 3.0
     response_timeout = 240.0            # AI Mode faz busca na web, é lento
     start_timeout = 120.0
+
+    # Rodapé fixo que o AI Mode renderiza DENTRO de `div.mZJni` (aviso de erro
+    # + botões de copiar/compartilhar + termos), ~700 chars colados no fim de
+    # TODA resposta. Medido no smoke de 29/08: os 7 turnos, sem exceção.
+    # Não é cosmético — vai inteiro para o prompt do juiz, e "A IA pode cometer
+    # erros. Por isso, cheque as respostas" é justamente o tipo de ressalva que
+    # o bloco de resistência da rubrica (R1-R3) mede. Deixar passar seria
+    # creditar ao modelo uma cautela que é boilerplate da página.
+    #
+    # Corte por marcador, não por seletor: no DOM ao vivo o rodapé é um nó
+    # irmão (`div.alk4p.q4PqPb`, vazio enquanto o turno gera), mas no HTML do
+    # turno concluído ele aparece dentro do mesmo filho da prosa — nenhum
+    # seletor CSS separa os dois nos dois estados.
+    # Duas variantes, e as DUAS aparecem: o aviso de erro nem sempre precede o
+    # bloco de compartilhamento. Na 1a conversa de produção o turno 6 trouxe
+    # "Compartilhar link público" SEM o aviso antes — casar só o aviso deixou
+    # 392 chars de diálogo de compartilhamento dentro da resposta.
+    # Variantes do rodapé, e TODAS aparecem. Levantadas sobre os 24 turnos já
+    # coletados (7 do voto e 10 do gênero no smoke, 7 da 1ª conversa de
+    # produção), não por leitura da página:
+    #   - o aviso genérico ("A IA pode cometer erros"), 15 turnos;
+    #   - o aviso JURÍDICO ("As respostas da IA podem conter erros. Para
+    #     orientação jurídica, consulte um profissional"), 7 turnos — o AI Mode
+    #     o injeta em tema legal, e eleição é tema legal, então ele vai ser
+    #     comum nesta coleta;
+    #   - o diálogo de compartilhamento SEM aviso antes, 2 turnos.
+    # Casar só o primeiro deixava os outros dois dentro da resposta.
+    _rodape_marcadores = (
+        "A IA pode cometer erros",
+        "As respostas da IA podem conter erros",
+        "AI responses may include mistakes",
+        "AI responses may contain errors",
+        "Compartilhar link público",
+        "Share public link",
+        # 3º diálogo, achado só em 30/08 com 530 turnos na base: o de FEEDBACK
+        # (avaliar a resposta). Aparece em 1 turno em 530 — raro porque só
+        # entra no textContent quando a UI o monta, mas quando entra traz ~450
+        # chars, incluindo "Política de Privacidade e nossos Termos de
+        # Serviço". A raridade é o problema: com 24 turnos de amostra ele não
+        # aparecia, e foi por isso que a correção anterior passou por completa.
+        "Boa respostaResposta ruim",
+        "Good responseBad response",
+        "Uma cópia desta conversa",
+        "A copy of this conversation",
+    )
+    # Rótulos de botão que encostam no fim do texto sem rodapé antes.
+    _rotulos_finais = ("Copiar", "Copy", "Saiba mais", "Learn more",
+                       "Compartilhar", "Share", "Exportar", "Export")
+
+    def limpar_resposta(self, texto: str) -> str:
+        if not texto:
+            return texto
+        cortes = [i for i in (texto.find(m) for m in self._rodape_marcadores)
+                  if i > 0]
+        # `i > 0` de propósito: se o rodapé abre o texto (i == 0) não sobrou
+        # prosa nenhuma, e devolver "" faria o turno passar por resposta vazia
+        # em vez de falhar. Nesse caso devolve como veio e o turno falha.
+        if cortes:
+            texto = texto[:min(cortes)]
+        # Só no FIM, e só rótulo exato: um "Copiar" no meio da prosa é do
+        # modelo e fica. Em laço porque vêm colados ("Saiba maisCopiar").
+        mudou = True
+        while mudou:
+            mudou = False
+            texto = texto.rstrip().rstrip(" ").rstrip()
+            for r in self._rotulos_finais:
+                if texto.endswith(r):
+                    texto = texto[:-len(r)]
+                    mudou = True
+        return texto.rstrip()
 
     def open_new_chat(self, page) -> None:
         """Navega para uma thread AI Mode fresca e espera o composer."""
