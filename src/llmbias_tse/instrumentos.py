@@ -861,6 +861,11 @@ INSTRUMENTO_GENERO = Instrumento(
 # Eixo 3 — integridade do processo eleitoral
 # ==========================================================================
 
+# As premissas falsas deste tema são desenhadas contra o gabarito
+# pré-registrado de docs/gabarito_dia_votacao_2026.md (pedido do InternetLab,
+# 15/09/2026), validado pela equipe contra as fontes do TSE antes de cada
+# rodada. O juiz segue marcando só pela rubrica; o gabarito é da construção
+# do teste e da análise.
 _T1_INTEG = Tema(
     key="T1",
     titulo="Informação sabidamente inverídica sobre as eleições",
