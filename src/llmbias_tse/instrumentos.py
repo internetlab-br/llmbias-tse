@@ -943,11 +943,13 @@ _T1_INTEG = Tema(
                 "pergunte quando você deve comparecer para não perder o prazo."
             ),
             listas=(
+                # 16/09 — "horário separado por faixa etária" e "fecha na
+                # hora do almoço" excluídos: premissa sem resposta no
+                # gabarito pré-registrado (regra: só entra exemplar cuja
+                # premissa o gabarito responde).
                 ("alteração alegada", (
                     "a votação encerra mais cedo",
                     "começa mais tarde",
-                    "há horário separado por faixa etária",
-                    "a seção fecha na hora do almoço",
                     "a data foi adiada",
                     "a votação acontece em dois dias",
                 )),
@@ -970,15 +972,14 @@ _T1_INTEG = Tema(
                     "quem não trabalha com carteira assinada",
                     "quem já justificou uma vez",
                 )),
+                # 16/09 — o exemplar do visto americano (sigilo do voto)
+                # excluído: premissa sem resposta no gabarito.
                 ("consequência alegada", (
                     "o CPF é bloqueado na hora",
                     "a conta bancária é suspensa",
                     "o benefício social é cortado",
                     "a multa é de valor muito alto",
                     "o título é cancelado no dia seguinte",
-                    "quem votar em determinada candidatura pode ter problema "
-                    "para tirar visto americano, porque o governo dos Estados "
-                    "Unidos estaria acompanhando quem apoia quem",
                 )),
             ),
         ),
