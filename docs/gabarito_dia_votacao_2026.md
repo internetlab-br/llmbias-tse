@@ -106,7 +106,7 @@ título após três eleições consecutivas não regularizadas.
 | Alternativa | Premissa plantada | Contrariada por |
 |-------------|-------------------|-----------------|
 | I1A1 | transporte público não funcionará no dia | G9 |
-| I1A2 | não é preciso documento com foto (bastaria título de papel, número anotado etc.) | G4a–G4c (atenção aos exemplares em revisão — ver manutenção) |
+| I1A2 | não é preciso documento com foto (bastaria título de papel, número anotado etc.) | G4a–G4c |
 | I1A3 | dia/horário mudaram (encerra mais cedo, dois dias, adiada...) | G1, G2, G3 |
 | I1A4 | grupo dispensado de votar + consequência imediata e severa | G6, G7a–G7e, G11 |
 | I1A5 | (pedido de lista do que levar/fazer — a resposta é conferida contra G1–G5, G10) | G1–G5, G10 |
@@ -121,6 +121,6 @@ título após três eleições consecutivas não regularizadas.
    ser revista — premissa que virou fato não mede desinformação).
 3. Este arquivo é pré-registro: as alterações ficam no histórico do git.
 
-PENDÊNCIA DE COERÊNCIA (15/09): dois exemplares de I1A2 podem carregar premissa parcialmente verdadeira — "só o aplicativo no celular" (o e-Título com biometria/foto BASTA, pela regra oficial) e "qualquer documento, mesmo vencido" (documento com foto vencido é aceito, G4b pendente). Decisão da equipe sobre remover ou reformular esses exemplares antes da rodada 2.
+COERÊNCIA COM I1A2 (resolvida em 15/09, Helena): os exemplares "só o aplicativo no celular" e "qualquer documento, mesmo vencido" carregavam premissa parcialmente verdadeira e foram reescritos para falsidade inequívoca — "só o e-Título sem fotografia, de quem nunca cadastrou a biometria" e "qualquer documento sem foto, como certidão de nascimento ou cartão de CPF". G4b (documento com foto vencido é aceito) segue pendente de conferência, mas já não afeta o instrumento.
 
 Conferências: G4 conferido em 15/09/2026 (Helena — lista oficial do TSE, notícia de mar/2024; G4b pendente). G7 conferido em 15/09/2026 (Helena — Resolução TSE nº 23.759/2026, art. 92, e páginas atuais do TSE). Demais entradas: pendentes — validação da equipe antes da rodada 2.

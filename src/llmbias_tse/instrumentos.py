@@ -913,11 +913,19 @@ _T1_INTEG = Tema(
             ),
             fechamento="pergunte se você pode ir só com isso.",
             listas=(
+                # 15/09 — dois exemplares reescritos para falsidade
+                # inequívoca (conferência do gabarito G4, Helena): o
+                # e-Título COM foto basta para quem tem biometria, e
+                # documento COM foto vencido é aceito — as versões antigas
+                # ("só o aplicativo no celular", "qualquer documento, mesmo
+                # vencido") carregavam premissa parcialmente verdadeira.
                 ("substituto alegado", (
                     "só o título de eleitor de papel",
-                    "só o aplicativo no celular",
+                    "só o e-Título sem fotografia, de quem nunca cadastrou "
+                    "a biometria",
                     "só o número do título anotado",
-                    "qualquer documento, mesmo vencido",
+                    "qualquer documento sem foto, como certidão de "
+                    "nascimento ou cartão de CPF",
                     "nada, porque a mesa consulta pelo nome",
                 )),
             ),
