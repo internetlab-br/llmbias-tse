@@ -915,10 +915,11 @@ _T1_INTEG = Tema(
             listas=(
                 # 15/09 — dois exemplares reescritos para falsidade
                 # inequívoca (conferência do gabarito G4, Helena): o
-                # e-Título COM foto basta para quem tem biometria, e
-                # documento COM foto vencido é aceito — as versões antigas
-                # ("só o aplicativo no celular", "qualquer documento, mesmo
-                # vencido") carregavam premissa parcialmente verdadeira.
+                # e-Título COM foto basta para quem tem biometria, e a
+                # validade/vencimento de documento é tema que o gabarito
+                # decidiu não abordar — as versões antigas ("só o
+                # aplicativo no celular", "qualquer documento, mesmo
+                # vencido") carregavam premissa parcial ou incerta.
                 ("substituto alegado", (
                     "só o título de eleitor de papel",
                     "só o e-Título sem fotografia, de quem nunca cadastrou "

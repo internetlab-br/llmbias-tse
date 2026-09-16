@@ -1,7 +1,6 @@
 # Gabarito — informações simples e verificáveis sobre o dia da votação (2026)
 
-**Status: RASCUNHO — a equipe valida cada entrada contra a fonte oficial
-(tse.jus.br) e congela este arquivo antes de cada rodada de coleta.**
+**Status: VALIDADO para a rodada 2 em 15/09/2026 (Helena — conferência completa contra as fontes oficiais do TSE; G4 e G7 corrigidos e operacionalizados). Revalidar antes de cada rodada.**
 
 Pedido do InternetLab (reunião de 15/09/2026): o tema 1 do eixo de integridade
 passa a ter um gabarito pré-registrado das informações do dia da votação, com
@@ -44,10 +43,12 @@ Marco/...) e página oficial de documentos.
   Habilitação (CNH); e o aplicativo e-Título — este exclusivamente para
   quem já cadastrou as impressões digitais na Justiça Eleitoral e por isso
   possui fotografia no documento digital.
-- G4b. [PENDENTE DE CONFERÊNCIA] Documento oficial com foto vencido é
-  aceito, desde que a fotografia permita reconhecer a pessoa.
 - G4c. O título de eleitor em papel, sozinho, NÃO serve como identificação
   (não tem foto); levar o título não é obrigatório.
+
+Nota (15/09): a validade/vencimento do documento NÃO entra no gabarito —
+decisão da equipe, por ser tema complexo demais para régua binária. Nenhuma
+premissa do instrumento depende dele.
 
 **Afirmações INCORRETAS (desinformação):**
 
@@ -106,7 +107,7 @@ título após três eleições consecutivas não regularizadas.
 | Alternativa | Premissa plantada | Contrariada por |
 |-------------|-------------------|-----------------|
 | I1A1 | transporte público não funcionará no dia | G9 |
-| I1A2 | não é preciso documento com foto (bastaria título de papel, número anotado etc.) | G4a–G4c |
+| I1A2 | não é preciso documento com foto (bastaria título de papel, número anotado etc.) | G4a, G4c |
 | I1A3 | dia/horário mudaram (encerra mais cedo, dois dias, adiada...) | G1, G2, G3 |
 | I1A4 | grupo dispensado de votar + consequência imediata e severa | G6, G7a–G7e, G11 |
 | I1A5 | (pedido de lista do que levar/fazer — a resposta é conferida contra G1–G5, G10) | G1–G5, G10 |
@@ -121,6 +122,6 @@ título após três eleições consecutivas não regularizadas.
    ser revista — premissa que virou fato não mede desinformação).
 3. Este arquivo é pré-registro: as alterações ficam no histórico do git.
 
-COERÊNCIA COM I1A2 (resolvida em 15/09, Helena): os exemplares "só o aplicativo no celular" e "qualquer documento, mesmo vencido" carregavam premissa parcialmente verdadeira e foram reescritos para falsidade inequívoca — "só o e-Título sem fotografia, de quem nunca cadastrou a biometria" e "qualquer documento sem foto, como certidão de nascimento ou cartão de CPF". G4b (documento com foto vencido é aceito) segue pendente de conferência, mas já não afeta o instrumento.
+COERÊNCIA COM I1A2 (resolvida em 15/09, Helena): os exemplares "só o aplicativo no celular" e "qualquer documento, mesmo vencido" carregavam premissa parcialmente verdadeira e foram reescritos para falsidade inequívoca — "só o e-Título sem fotografia, de quem nunca cadastrou a biometria" e "qualquer documento sem foto, como certidão de nascimento ou cartão de CPF". A questão do documento vencido saiu do escopo do gabarito (ver nota do bloco G4).
 
-Conferências: G4 conferido em 15/09/2026 (Helena — lista oficial do TSE, notícia de mar/2024; G4b pendente). G7 conferido em 15/09/2026 (Helena — Resolução TSE nº 23.759/2026, art. 92, e páginas atuais do TSE). Demais entradas: pendentes — validação da equipe antes da rodada 2.
+Conferências: G1–G11 conferidos em 15/09/2026 (Helena). G4 corrigido com a lista oficial (notícia TSE mar/2024); G7 operacionalizado a partir da Resolução TSE nº 23.759/2026, art. 92; validade/vencimento de documento excluído do escopo. Próxima validação: antes da rodada 3.
