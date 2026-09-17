@@ -48,6 +48,11 @@ fi
 #    x11vnc só no loopback do container; quem publica é o Caddy/cloudflared.
 # ---------------------------------------------------------------------------
 touch "$XAUTH"; chmod 600 "$XAUTH"
+# Lock do Xvfb sobrevive ao restart do container (o filesystem persiste), e o
+# Xvfb novo morre com "Server is already active for display N". Junto com a
+# checagem de CDP que agora aborta de verdade, isso fazia a estação entrar em
+# loop de restart sem nunca recuperar. Ninguém mais usa este display aqui.
+rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 Xvfb ":${DISPLAY_NUM}" -screen 0 "$TELA" -nolisten tcp -auth "$XAUTH" &
 # Espera a tela ACEITAR conexão, em vez de dormir um tempo fixo. Com `sleep 3`
 # o Chrome subia antes do Xvfb em máquina carregada (5 estações subindo

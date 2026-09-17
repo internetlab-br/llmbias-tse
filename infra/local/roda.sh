@@ -44,9 +44,13 @@ except Exception:
     pass
 PY
 }
+# `^` é essencial: sem ele o padrão casa também em INCOMPLETAS=, a função
+# devolve DUAS linhas ("0\n3") e a comparação de progresso abaixo quebra com
+# "esperava expressão de número inteiro" — deixando a guarda de 3 lotes sem
+# progresso sem funcionar.
 completas() {
   uv run python infra/local/progresso.py "$PLATAFORMA" \
-      --run-dir "$RUN_DIR" 2>/dev/null | grep -oP 'COMPLETAS=\K[0-9]+'
+      --run-dir "$RUN_DIR" 2>/dev/null | grep -oP '^COMPLETAS=\K[0-9]+'
 }
 
 evento coleta_iniciada info "runner de $PLATAFORMA no ar"
