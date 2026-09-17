@@ -1,14 +1,42 @@
-# Rodada 2 — 24 sessões (8 plataformas × 3 eixos)
+# Rodada 2 — 24 sessões (8 plataformas × 3 contas)
 
 Cada sessão é uma estação: conta própria, perfil de Chrome próprio, tela remota
-própria e arquivo de controle próprio. O id da sessão é `plataforma.eixo`.
+própria e arquivo de controle próprio. O id da sessão é `plataforma.cN`.
 
-## Por que partir por eixo, e não 3 contas no mesmo eixo
+## O desenho: fatiar PERFIS, não eixos
 
-O resume indexa a conversa por `{plataforma}_{perfil}_{eixo}`. Duas sessões no
-mesmo eixo disputariam as mesmas conversas — trabalho duplicado e corrida de
-escrita no mesmo arquivo. Partindo por eixo, cada sessão tem trabalho exclusivo
-e o resume continua valendo sem mudança nenhuma.
+Cada conta roda os **três eixos** numa **fatia dos perfis** (`--fatia i/3`).
+
+Fatiar por eixo seria mais simples, mas colaria a conta no eixo: toda conversa
+de `voto` viria de uma conta e toda de `genero` de outra, e os dois efeitos não
+se separariam. Na rodada 1 o efeito de conta no Meta AI foi grande — a recusa
+evasiva "Boa pergunta, acesse tse.jus.br" apareceu em 69% dos turnos de uma
+conta e em **0%** dos 804 turnos de outra.
+
+Fatiando por perfil, a conta varia **dentro** de cada eixo. E três propriedades
+saem de graça:
+
+- **sem colisão**: as fatias são disjuntas por construção (ordena por id,
+  reparte por resto), sem as máquinas combinarem nada entre si;
+- **balanceamento garantido**: cada fatia faz todos os eixos dos perfis dela,
+  então nenhum eixo pode terminar com mais conversas que outro. Não depende de
+  ninguém monitorar;
+- **resume intacto**: a conversa continua indexada por
+  `{plataforma}_{perfil}_{eixo}`.
+
+## Registrar a conta
+
+Cada estação declara a conta logada em `LLMBIAS_CONTA`, e isso vai gravado no
+campo `conta` de **cada conversa**. No `.env`:
+
+```sh
+CONTA_whatsapp_metaai_c1=esim_A
+CONTA_whatsapp_metaai_c2=esim_B
+CONTA_whatsapp_metaai_c3=esim_C
+```
+
+Sem isso a conta só se reconstrói por timestamp depois — foi o que precisou ser
+feito na rodada 1. `google_aimode` não faz login: deixe vazio.
 
 ## Subir
 

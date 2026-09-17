@@ -480,6 +480,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "run_id": store.run_id,
         "conversation_id": conv_id,
         "platform": platform,
+        # QUAL CONTA coletou esta conversa, declarado pela estação em
+        # `LLMBIAS_CONTA`. Sem isso a conta só se reconstrói por timestamp
+        # depois — foi o que precisou ser feito na rodada 1, e a conta acabou
+        # sendo a variável que mais explicou diferença de comportamento (a
+        # recusa evasiva do Meta AI apareceu em 69% dos turnos de uma conta e
+        # em 0% de outra). Vazio quando a plataforma não exige login
+        # (google_aimode) ou quando a estação não declarou.
+        "conta": os.environ.get("LLMBIAS_CONTA") or None,
+        "sessao": os.environ.get("SESSAO") or None,
         "mode": mode,
         "model_user_agent": model,
         "profile": asdict(profile),

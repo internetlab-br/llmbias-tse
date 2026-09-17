@@ -16,6 +16,8 @@ Fontes, todas append-only ou write-once:
 from __future__ import annotations
 
 import json
+import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -96,12 +98,44 @@ def partir_sessao(sessao: str) -> tuple[str, str | None]:
     sessões no mesmo eixo disputariam as mesmas conversas.
     """
     if "." in sessao:
-        plat, eixo = sessao.rsplit(".", 1)
-        return plat, eixo
+        plat, suf = sessao.rsplit(".", 1)
+        return plat, suf
     return sessao, None
 
 
-def progresso(run_dir, plataforma: str, pln=None, eixos=None) -> dict:
+_RE_CONTA = re.compile(r"^c(\d+)$")
+
+
+def _perfis_do_run(run_dir) -> list[str]:
+    """Ids dos perfis do run, do `profiles.json`. É a lista que o runner
+    fatia, então painel e runner precisam ler a MESMA fonte."""
+    d = _ler_json(Path(run_dir) / "profiles.json")
+    if isinstance(d, dict):
+        d = d.get("profiles") or d.get("perfis") or []
+    return sorted(x.get("id") for x in (d or []) if isinstance(x, dict) and x.get("id"))
+
+
+def fatia_da_sessao(sessao: str, n_fatias: int) -> tuple[int, int] | None:
+    """`"gemini.c2"` com n=3 -> `(2, 3)`; sufixo que não é conta -> `None`.
+
+    O sufixo `cN` marca a CONTA/fatia da sessão. Cada fatia roda os TRÊS eixos
+    num terço dos perfis, para a conta variar dentro de cada eixo — se cada
+    conta pegasse um eixo, a conta ficaria colada no eixo e os dois efeitos não
+    se separariam."""
+    _, suf = partir_sessao(sessao)
+    m = _RE_CONTA.match(suf or "")
+    return (int(m.group(1)), n_fatias) if m else None
+
+
+def perfis_da_fatia(perfis: list[str], i: int, n: int) -> set[str]:
+    """Mesma regra de `conjoint_experiment._fatiar_perfis`: ordena e reparte
+    por resto. Precisa ser idêntica, senão o painel mede um alvo que o runner
+    não vai cumprir."""
+    return {p for k, p in enumerate(sorted(perfis)) if k % n == i - 1}
+
+
+def progresso(run_dir, plataforma: str, pln=None, eixos=None,
+              perfis=None) -> dict:
     """Conta conversas completas e incompletas de uma plataforma.
 
     `eixos` restringe a contagem (e o alvo) aos eixos dados — é o que faz uma
@@ -128,7 +162,12 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None) -> dict:
             eixo = rec.get("eixo") or p.stem.split("_")[-1]
             if eixos and eixo not in eixos:
                 continue
-            perfil = rec.get("perfil_id") or rec.get("profile_id")
+            # o registro da conversa guarda o perfil em `profile.id`; as duas
+            # outras formas existem em runs antigos
+            perfil = (rec.get("perfil_id") or rec.get("profile_id")
+                      or (rec.get("profile") or {}).get("id"))
+            if perfis is not None and perfil not in perfis:
+                continue  # conversa de outra fatia
             turns = rec.get("turns") or []
             turnos_ok += sum(1 for t in turns if t.get("ok"))
             alvo_turnos = (esperados.get(f"{perfil}_{eixo}")
@@ -142,7 +181,13 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None) -> dict:
                 incompletas[eixo] = incompletas.get(eixo, 0) + 1
 
     total = sum(completas.values())
-    if eixos:
+    if perfis is not None:
+        # fatia: alvo = perfis desta fatia x eixos do plano. `is not None` e
+        # não truthiness: fatia vazia (menos perfis que fatias) tem alvo ZERO,
+        # e cair no alvo da plataforma inteira faria o painel mostrar a sessão
+        # como atrasada para sempre.
+        alvo = len(perfis) * len(pln.get("eixos") or [])
+    elif eixos:
         # o alvo da sessão é o do(s) eixo(s) dela, não o da plataforma inteira
         por_eixo = pln.get("alvo_por_eixo") or {}
         alvo = sum(por_eixo.get(e, 0) for e in eixos)
@@ -207,9 +252,19 @@ def _eventos_por_plataforma(run_dir, horas: int = 24) -> dict:
 
 def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     """Tudo que o painel mostra de UMA sessão (`plataforma` ou `plataforma.eixo`)."""
-    plataforma, eixo = partir_sessao(sessao)
-    eixos = [eixo] if eixo else None
-    prog = progresso(run_dir, plataforma, pln, eixos=eixos)
+    plataforma, suf = partir_sessao(sessao)
+    n_fatias = int(os.environ.get("N_FATIAS", "3"))
+    fat = fatia_da_sessao(sessao, n_fatias)
+    if fat:
+        # sessão por CONTA: roda os três eixos numa fatia dos perfis
+        perfis = perfis_da_fatia(_perfis_do_run(run_dir), *fat)
+        prog = progresso(run_dir, plataforma, pln, perfis=perfis)
+        eixo = None
+    else:
+        # sessão por EIXO (forma alternativa) ou plataforma inteira
+        eixo = suf
+        eixos = [eixo] if eixo else None
+        prog = progresso(run_dir, plataforma, pln, eixos=eixos)
     # O CONTROLE é por sessão, não por plataforma: três sessões da mesma
     # plataforma precisam poder ser pausadas e retomadas em separado.
     ctl = controle(run_dir, sessao)

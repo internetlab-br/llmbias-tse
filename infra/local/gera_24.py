@@ -13,22 +13,34 @@ from pathlib import Path
 PLATAFORMAS = ["gemini", "chatgpt", "claude", "grok", "deepseek",
                "copilot", "google_aimode", "whatsapp_metaai"]
 EIXOS = ["voto", "genero", "integridade"]
-SESSOES = [f"{p}.{e}" for p in PLATAFORMAS for e in EIXOS]
+N_FATIAS = 3
+# Sessão = (plataforma, CONTA). Cada conta roda os TRÊS eixos numa fatia dos
+# perfis, para a conta variar DENTRO de cada eixo. Se cada conta pegasse um
+# eixo, a conta ficaria colada no eixo e os dois efeitos não se separariam —
+# e na rodada 1 o efeito de conta no Meta AI foi grande (recusa evasiva em 69%
+# dos turnos de uma conta e 0% de outra).
+SESSOES = [f"{p}.c{i}" for p in PLATAFORMAS for i in range(1, N_FATIAS + 1)]
 
 base = Path("compose.yaml").read_text()
 cabeca = base.split("services:")[0]
 
 servicos = []
 for s in SESSOES:
-    plat, eixo = s.rsplit(".", 1)
+    plat, conta = s.rsplit(".", 1)
+    i = int(conta[1:])
     servicos.append(f"""  coleta-{s}:
     <<: *estacao
     container_name: coleta-{s}
     environment:
       <<: *ambiente
       PLATAFORMA: {plat}
-      EIXOS: {eixo}
+      EIXOS: {" ".join(EIXOS)}
+      FATIA: {i}/{N_FATIAS}
       SESSAO: {s}
+      N_FATIAS: {N_FATIAS}
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${{CONTA_{s.replace(".","_")}:-}}
     volumes:
       - ../../:/app
       - ../../data:/dados

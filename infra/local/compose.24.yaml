@@ -45,317 +45,437 @@ x-estacao: &estacao
     PROXY_SOCKS: ${PROXY_SOCKS:-}
 
 services:
-  coleta-gemini.voto:
+  coleta-gemini.c1:
     <<: *estacao
-    container_name: coleta-gemini.voto
+    container_name: coleta-gemini.c1
     environment:
       <<: *ambiente
       PLATAFORMA: gemini
-      EIXOS: voto
-      SESSAO: gemini.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: gemini.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_gemini_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/gemini.voto:/perfil
+      - ./perfis/gemini.c1:/perfil
 
-  coleta-gemini.genero:
+  coleta-gemini.c2:
     <<: *estacao
-    container_name: coleta-gemini.genero
+    container_name: coleta-gemini.c2
     environment:
       <<: *ambiente
       PLATAFORMA: gemini
-      EIXOS: genero
-      SESSAO: gemini.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: gemini.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_gemini_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/gemini.genero:/perfil
+      - ./perfis/gemini.c2:/perfil
 
-  coleta-gemini.integridade:
+  coleta-gemini.c3:
     <<: *estacao
-    container_name: coleta-gemini.integridade
+    container_name: coleta-gemini.c3
     environment:
       <<: *ambiente
       PLATAFORMA: gemini
-      EIXOS: integridade
-      SESSAO: gemini.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: gemini.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_gemini_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/gemini.integridade:/perfil
+      - ./perfis/gemini.c3:/perfil
 
-  coleta-chatgpt.voto:
+  coleta-chatgpt.c1:
     <<: *estacao
-    container_name: coleta-chatgpt.voto
+    container_name: coleta-chatgpt.c1
     environment:
       <<: *ambiente
       PLATAFORMA: chatgpt
-      EIXOS: voto
-      SESSAO: chatgpt.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: chatgpt.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_chatgpt_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/chatgpt.voto:/perfil
+      - ./perfis/chatgpt.c1:/perfil
 
-  coleta-chatgpt.genero:
+  coleta-chatgpt.c2:
     <<: *estacao
-    container_name: coleta-chatgpt.genero
+    container_name: coleta-chatgpt.c2
     environment:
       <<: *ambiente
       PLATAFORMA: chatgpt
-      EIXOS: genero
-      SESSAO: chatgpt.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: chatgpt.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_chatgpt_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/chatgpt.genero:/perfil
+      - ./perfis/chatgpt.c2:/perfil
 
-  coleta-chatgpt.integridade:
+  coleta-chatgpt.c3:
     <<: *estacao
-    container_name: coleta-chatgpt.integridade
+    container_name: coleta-chatgpt.c3
     environment:
       <<: *ambiente
       PLATAFORMA: chatgpt
-      EIXOS: integridade
-      SESSAO: chatgpt.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: chatgpt.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_chatgpt_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/chatgpt.integridade:/perfil
+      - ./perfis/chatgpt.c3:/perfil
 
-  coleta-claude.voto:
+  coleta-claude.c1:
     <<: *estacao
-    container_name: coleta-claude.voto
+    container_name: coleta-claude.c1
     environment:
       <<: *ambiente
       PLATAFORMA: claude
-      EIXOS: voto
-      SESSAO: claude.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: claude.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_claude_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/claude.voto:/perfil
+      - ./perfis/claude.c1:/perfil
 
-  coleta-claude.genero:
+  coleta-claude.c2:
     <<: *estacao
-    container_name: coleta-claude.genero
+    container_name: coleta-claude.c2
     environment:
       <<: *ambiente
       PLATAFORMA: claude
-      EIXOS: genero
-      SESSAO: claude.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: claude.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_claude_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/claude.genero:/perfil
+      - ./perfis/claude.c2:/perfil
 
-  coleta-claude.integridade:
+  coleta-claude.c3:
     <<: *estacao
-    container_name: coleta-claude.integridade
+    container_name: coleta-claude.c3
     environment:
       <<: *ambiente
       PLATAFORMA: claude
-      EIXOS: integridade
-      SESSAO: claude.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: claude.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_claude_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/claude.integridade:/perfil
+      - ./perfis/claude.c3:/perfil
 
-  coleta-grok.voto:
+  coleta-grok.c1:
     <<: *estacao
-    container_name: coleta-grok.voto
+    container_name: coleta-grok.c1
     environment:
       <<: *ambiente
       PLATAFORMA: grok
-      EIXOS: voto
-      SESSAO: grok.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: grok.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_grok_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/grok.voto:/perfil
+      - ./perfis/grok.c1:/perfil
 
-  coleta-grok.genero:
+  coleta-grok.c2:
     <<: *estacao
-    container_name: coleta-grok.genero
+    container_name: coleta-grok.c2
     environment:
       <<: *ambiente
       PLATAFORMA: grok
-      EIXOS: genero
-      SESSAO: grok.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: grok.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_grok_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/grok.genero:/perfil
+      - ./perfis/grok.c2:/perfil
 
-  coleta-grok.integridade:
+  coleta-grok.c3:
     <<: *estacao
-    container_name: coleta-grok.integridade
+    container_name: coleta-grok.c3
     environment:
       <<: *ambiente
       PLATAFORMA: grok
-      EIXOS: integridade
-      SESSAO: grok.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: grok.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_grok_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/grok.integridade:/perfil
+      - ./perfis/grok.c3:/perfil
 
-  coleta-deepseek.voto:
+  coleta-deepseek.c1:
     <<: *estacao
-    container_name: coleta-deepseek.voto
+    container_name: coleta-deepseek.c1
     environment:
       <<: *ambiente
       PLATAFORMA: deepseek
-      EIXOS: voto
-      SESSAO: deepseek.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: deepseek.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_deepseek_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/deepseek.voto:/perfil
+      - ./perfis/deepseek.c1:/perfil
 
-  coleta-deepseek.genero:
+  coleta-deepseek.c2:
     <<: *estacao
-    container_name: coleta-deepseek.genero
+    container_name: coleta-deepseek.c2
     environment:
       <<: *ambiente
       PLATAFORMA: deepseek
-      EIXOS: genero
-      SESSAO: deepseek.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: deepseek.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_deepseek_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/deepseek.genero:/perfil
+      - ./perfis/deepseek.c2:/perfil
 
-  coleta-deepseek.integridade:
+  coleta-deepseek.c3:
     <<: *estacao
-    container_name: coleta-deepseek.integridade
+    container_name: coleta-deepseek.c3
     environment:
       <<: *ambiente
       PLATAFORMA: deepseek
-      EIXOS: integridade
-      SESSAO: deepseek.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: deepseek.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_deepseek_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/deepseek.integridade:/perfil
+      - ./perfis/deepseek.c3:/perfil
 
-  coleta-copilot.voto:
+  coleta-copilot.c1:
     <<: *estacao
-    container_name: coleta-copilot.voto
+    container_name: coleta-copilot.c1
     environment:
       <<: *ambiente
       PLATAFORMA: copilot
-      EIXOS: voto
-      SESSAO: copilot.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: copilot.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_copilot_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/copilot.voto:/perfil
+      - ./perfis/copilot.c1:/perfil
 
-  coleta-copilot.genero:
+  coleta-copilot.c2:
     <<: *estacao
-    container_name: coleta-copilot.genero
+    container_name: coleta-copilot.c2
     environment:
       <<: *ambiente
       PLATAFORMA: copilot
-      EIXOS: genero
-      SESSAO: copilot.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: copilot.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_copilot_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/copilot.genero:/perfil
+      - ./perfis/copilot.c2:/perfil
 
-  coleta-copilot.integridade:
+  coleta-copilot.c3:
     <<: *estacao
-    container_name: coleta-copilot.integridade
+    container_name: coleta-copilot.c3
     environment:
       <<: *ambiente
       PLATAFORMA: copilot
-      EIXOS: integridade
-      SESSAO: copilot.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: copilot.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_copilot_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/copilot.integridade:/perfil
+      - ./perfis/copilot.c3:/perfil
 
-  coleta-google_aimode.voto:
+  coleta-google_aimode.c1:
     <<: *estacao
-    container_name: coleta-google_aimode.voto
+    container_name: coleta-google_aimode.c1
     environment:
       <<: *ambiente
       PLATAFORMA: google_aimode
-      EIXOS: voto
-      SESSAO: google_aimode.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: google_aimode.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_google_aimode_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/google_aimode.voto:/perfil
+      - ./perfis/google_aimode.c1:/perfil
 
-  coleta-google_aimode.genero:
+  coleta-google_aimode.c2:
     <<: *estacao
-    container_name: coleta-google_aimode.genero
+    container_name: coleta-google_aimode.c2
     environment:
       <<: *ambiente
       PLATAFORMA: google_aimode
-      EIXOS: genero
-      SESSAO: google_aimode.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: google_aimode.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_google_aimode_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/google_aimode.genero:/perfil
+      - ./perfis/google_aimode.c2:/perfil
 
-  coleta-google_aimode.integridade:
+  coleta-google_aimode.c3:
     <<: *estacao
-    container_name: coleta-google_aimode.integridade
+    container_name: coleta-google_aimode.c3
     environment:
       <<: *ambiente
       PLATAFORMA: google_aimode
-      EIXOS: integridade
-      SESSAO: google_aimode.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: google_aimode.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_google_aimode_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/google_aimode.integridade:/perfil
+      - ./perfis/google_aimode.c3:/perfil
 
-  coleta-whatsapp_metaai.voto:
+  coleta-whatsapp_metaai.c1:
     <<: *estacao
-    container_name: coleta-whatsapp_metaai.voto
+    container_name: coleta-whatsapp_metaai.c1
     environment:
       <<: *ambiente
       PLATAFORMA: whatsapp_metaai
-      EIXOS: voto
-      SESSAO: whatsapp_metaai.voto
+      EIXOS: voto genero integridade
+      FATIA: 1/3
+      SESSAO: whatsapp_metaai.c1
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_whatsapp_metaai_c1:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/whatsapp_metaai.voto:/perfil
+      - ./perfis/whatsapp_metaai.c1:/perfil
 
-  coleta-whatsapp_metaai.genero:
+  coleta-whatsapp_metaai.c2:
     <<: *estacao
-    container_name: coleta-whatsapp_metaai.genero
+    container_name: coleta-whatsapp_metaai.c2
     environment:
       <<: *ambiente
       PLATAFORMA: whatsapp_metaai
-      EIXOS: genero
-      SESSAO: whatsapp_metaai.genero
+      EIXOS: voto genero integridade
+      FATIA: 2/3
+      SESSAO: whatsapp_metaai.c2
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_whatsapp_metaai_c2:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/whatsapp_metaai.genero:/perfil
+      - ./perfis/whatsapp_metaai.c2:/perfil
 
-  coleta-whatsapp_metaai.integridade:
+  coleta-whatsapp_metaai.c3:
     <<: *estacao
-    container_name: coleta-whatsapp_metaai.integridade
+    container_name: coleta-whatsapp_metaai.c3
     environment:
       <<: *ambiente
       PLATAFORMA: whatsapp_metaai
-      EIXOS: integridade
-      SESSAO: whatsapp_metaai.integridade
+      EIXOS: voto genero integridade
+      FATIA: 3/3
+      SESSAO: whatsapp_metaai.c3
+      N_FATIAS: 3
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em
+      # cada conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_whatsapp_metaai_c3:-}
     volumes:
       - ../../:/app
       - ../../data:/dados
-      - ./perfis/whatsapp_metaai.integridade:/perfil
+      - ./perfis/whatsapp_metaai.c3:/perfil
 
   painel:
     image: llmbias-coleta:latest

@@ -78,6 +78,7 @@ while true; do
   uv run python -m llmbias_tse conjoint \
       --run-id "$RUN_ID" --platforms "$PLATAFORMA" --eixos $EIXOS \
       --phase generate --per-platform-limit "$LOTE" \
+      ${FATIA:+--fatia "$FATIA"} \
       --turn-delay "$TURN_DELAY" --conv-delay "$CONV_DELAY"
   DEPOIS="$(completas)"; DEPOIS="${DEPOIS:-0}"
 
