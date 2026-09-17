@@ -11,12 +11,12 @@ A solucao foi rodar o Chrome na VM da Azure mas fazer **todo** o trafego dele
 sair por um **tunel SOCKS reverso** aberto **de dentro da rede de casa**:
 
 ```
-[terranave, rede de casa] --ssh -N -R 1080--> [VM Azure] --Chrome --proxy-server=socks5://127.0.0.1:1080--> internet
+[host residencial, rede de casa] --ssh -N -R 1080--> [VM Azure] --Chrome --proxy-server=socks5://127.0.0.1:1080--> internet
 ```
 
-A terranave e um servidor sempre ligado em casa, com o mesmo IP publico da
+O host residencial e um servidor sempre ligado em casa, com o mesmo IP publico da rede domestica
 maquina Windows do Julio. `ssh -R 1080` abre na VM uma porta SOCKS que sai pela
-terranave, entao o Chrome da Azure aparece para as plataformas com o IP
+da casa, entao o Chrome da Azure aparece para as plataformas com o IP
 residencial.
 
 `start-browser.sh` e **fail-closed**: se a porta 1080 nao responder, o Chrome
@@ -35,7 +35,7 @@ que nem o loopback escapa do proxy.
 | `vm/watchdog.sh` | `~/llmbias-tse/` na VM | a cada 10 min: checa tunel, IP de saida, CDP, abas de reserva e religa o runner |
 | `vm/progresso.py` | `~/llmbias-tse/` na VM | conta conversas completas (`COMPLETAS=` / `ALVO=`), usado pelos dois acima |
 | `vm/verifica_ip.py`, `vm/checa_conta.py`, `vm/checa_plataforma.py`, `vm/testa_driver.py` | `~/llmbias-tse/` na VM | diagnostico: IP de saida, se a conta esta logada, se o driver captura |
-| `terranave/llmbias-tunnel-*.service` | `~/.config/systemd/user/` na terranave | um tunel por VM, `Restart=always` |
+| `host-residencial/llmbias-tunnel-*.service` | `~/.config/systemd/user/` no host residencial | um tunel por VM, `Restart=always` |
 | `acesso-*.cmd` | Windows | abre o tunel SSH local e diz a URL do noVNC |
 | `sync_gemini.sh` | Windows | faz a uniao das conversas de duas VMs da mesma plataforma, preferindo as completas |
 
@@ -63,12 +63,12 @@ az network nsg rule create -g rg-llmbias-coleta --nsg-name vm-geminiNSG \
 **Quota:** a subscription usada tinha limite **0** na familia `DASv5`.
 `DSv3` tem 10 vCPU, ou seja **5 VMs `Standard_D2s_v3`** no maximo.
 
-### 2. Tunel na terranave
+### 2. Tunel no host residencial
 
 ```bash
-scp ~/.ssh/llmbias_azure nave:~/.ssh/
-scp terranave/llmbias-tunnel-gemini.service nave:~/.config/systemd/user/
-ssh nave 'loginctl enable-linger $USER && systemctl --user daemon-reload && \
+scp ~/.ssh/llmbias_azure <host>:~/.ssh/
+scp host-residencial/llmbias-tunnel-gemini.service <host>:~/.config/systemd/user/
+ssh <host> 'loginctl enable-linger $USER && systemctl --user daemon-reload && \
           systemctl --user enable --now llmbias-tunnel-gemini'
 ```
 
@@ -116,7 +116,7 @@ comm -23 /tmp/vm.txt /tmp/local.txt   # tem que sair vazio
 
 ```bash
 az group delete -n rg-llmbias-coleta --subscription $SUB --yes
-ssh nave 'systemctl --user disable --now llmbias-tunnel-gemini llmbias-tunnel-copilot llmbias-tunnel-gemini2'
+ssh <host> 'systemctl --user disable --now llmbias-tunnel-gemini llmbias-tunnel-copilot llmbias-tunnel-gemini2'
 ```
 
 Deletar o **grupo** (nao so a VM) e o que zera o custo: disco, IP publico, NIC e

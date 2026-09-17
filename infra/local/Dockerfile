@@ -6,7 +6,7 @@
 # perfil, porta CDP nem histórico.
 #
 # O que ele NÃO tem, e é a diferença central para o desenho da Azure: túnel.
-# Rodando na terranave (rede residencial), o egress do container já sai pelo
+# Rodando no host residencial (rede residencial), o egress do container já sai pelo
 # IP de casa. O túnel SOCKS existia só para VM de nuvem tomar emprestado esse
 # IP; aqui a peça mais frágil do sistema simplesmente não existe.
 FROM ubuntu:24.04

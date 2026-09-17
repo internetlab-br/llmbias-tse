@@ -4,7 +4,7 @@ O painel não conversa com os coletores: ele lê o mesmo diretório de rodada
 que eles escrevem (`data/<run_id>/`). Não há protocolo, porta, fila nem
 banco entre os dois. Isso é possível porque todas as estações rodam no
 mesmo host; foi justamente o que a mudança de VMs na Azure para containers
-na terranave comprou.
+no host residencial comprou.
 
 Fontes, todas append-only ou write-once:
   - `conversations/*.json` : o que já foi coletado (verdade sobre progresso)

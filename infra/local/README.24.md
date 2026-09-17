@@ -69,7 +69,7 @@ Três contas por plataforma: uma por eixo. Qual conta em qual sessão é decisã
 da equipe — registre, porque a conta é variável de incômodo (na rodada 1 o
 comportamento do Meta AI variou muito entre contas).
 
-## Capacidade medida (17/09/2026, terranave: 16 cores, 62 GB)
+## Capacidade medida (17/09/2026, host residencial: 16 cores, 62 GB)
 
 | | |
 |---|---|

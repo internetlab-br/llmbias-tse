@@ -31,7 +31,7 @@ mkdir -p "$PERFIL" "${DADOS}/${RUN_ID}/control"
 #
 # Na Azure o `start-browser.sh` era fail-closed contra o túnel cair. Aqui o
 # risco mudou de forma: não há túnel para cair, mas se alguém subir este
-# mesmo compose numa VM de nuvem (ou ligar uma VPN na terranave), a coleta
+# mesmo compose numa VM de nuvem (ou ligar uma VPN no host residencial), a coleta
 # passa a sair de um IP de datacenter e as contas queimam. Então a checagem
 # continua, só que sobre o IP em si.
 # ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ log() { echo "[start-browser] $*"; }
 # 1. Exige o tunel SOCKS ANTES de tudo.
 if ! timeout 5 bash -c "</dev/tcp/127.0.0.1/${SOCKS_PORT}" 2>/dev/null; then
   log "ERRO: proxy SOCKS 127.0.0.1:${SOCKS_PORT} fora do ar."
-  log "Suba o tunel reverso a partir da terranave antes de iniciar."
+  log "Suba o tunel reverso a partir do host residencial antes de iniciar."
   exit 1
 fi
 SAIDA="$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:${SOCKS_PORT} https://ipinfo.io/ip || true)"
