@@ -26,7 +26,10 @@ puladas ao reusar --run-id.
 
 from __future__ import annotations
 
+import collections
 import json
+import os
+import random
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -34,7 +37,7 @@ from pathlib import Path
 import pandas as pd
 from patchright.sync_api import sync_playwright
 
-from . import browser, capture, llm
+from . import browser, capture, corridas, llm
 from .axes import EIXOS
 from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
@@ -128,12 +131,60 @@ def _snapshot_rubrics(store: RunStore, eixos: list[str]) -> dict[str, RubricGrid
     return rubrics
 
 
+def _conferir_plano_compativel(plano: dict, eixos, desenho_corrida: str,
+                               calendario: corridas.Calendario,
+                               balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
+                               ) -> None:
+    """Retomar uma rodada antiga NÃO pode trocar o estímulo no meio.
+
+    O plano é recalculado a cada execução e o arquivo serve de registro, então
+    nada impede — em silêncio — que uma rodada começada antes da correção de
+    setembro/2026 tenha as primeiras conversas de voto perguntando sobre "a
+    eleição atual" e as seguintes sobre uma corrida atribuída. Metade da perna
+    com um estímulo e metade com outro é pior do que qualquer uma das duas
+    sozinhas: nem compara com agosto, nem responde pela rodada nova.
+
+    Por isso a incompatibilidade ABORTA em vez de avisar.
+    """
+    com_corrida = [e for e in eixos if e in corridas.EIXOS_COM_CORRIDA]
+    if not com_corrida:
+        return
+    anterior = plano.get("desenho_corrida")
+    if anterior is None:
+        raise SystemExit(
+            f"[conjoint] ABORTADO: esta rodada foi planejada ANTES da correção "
+            f"do eixo voto (setembro/2026) e o plano não registra corrida "
+            f"atribuída. Retomá-la com o código atual daria estímulo diferente "
+            f"às conversas que faltam.\n"
+            f"  - para continuar a rodada antiga: rode sem os eixos "
+            f"{com_corrida} (--eixos ...);\n"
+            f"  - para coletar com a correção: use um --run-id novo."
+        )
+    cal_anterior = plano.get("calendario") or {}
+    bal_anterior = plano.get("balanceamento_corrida",
+                             corridas.BALANCEAMENTO_PADRAO)
+    if (anterior != desenho_corrida or cal_anterior != calendario.to_dict()
+            or bal_anterior != balanceamento):
+        raise SystemExit(
+            f"[conjoint] ABORTADO: o plano desta rodada foi montado com "
+            f"desenho={anterior!r}, balanceamento={bal_anterior!r} e "
+            f"calendário={cal_anterior}, e agora a execução pede "
+            f"desenho={desenho_corrida!r}, balanceamento={balanceamento!r} e "
+            f"calendário={calendario.to_dict()}. Mudar isso no meio troca a "
+            f"pergunta. Use um --run-id novo."
+        )
+
+
 def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                         seed: int, n_turns: int | None,
                         tema_prob: float = DEFAULT_TEMA_PROB,
                         min_temas: int = DEFAULT_MIN_TEMAS,
+                        desenho_corrida: str = corridas.DESENHO_PADRAO,
+                        calendario: corridas.Calendario | None = None,
+                        balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
                         ) -> tuple[dict[str, dict[str, tuple]],
-                                   dict[str, dict[str, dict[str, bool]]]]:
+                                   dict[str, dict[str, dict[str, bool]]],
+                                   dict[str, dict[str, corridas.Corrida]]]:
     """Monta (ou retoma) o PLANO DE COLETA da rodada ANTES de rodar.
 
     Para cada eixo com instrumento, `instrument.plan_round()` resolve o roteiro
@@ -142,17 +193,41 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
     eixo, perfil) e não da plataforma, então a mesma célula do conjoint recebe
     o mesmo estímulo em todas as plataformas.
 
+    O eixo voto recebe ainda a CORRIDA atribuída (cargo e, quando o cargo
+    exige, UF), sorteada com a mesma propriedade: função de (semente, perfil) e
+    cega à plataforma. É ela que substitui "a eleição atual" da ficha de agosto.
+
     Persistido em `plano_coleta.json` (fonte da verdade, retomável) e
     `plano_coleta.csv` (uma linha por conversa planejada, para inspeção e
     pré-registro). Devolve {eixo: {profile_id: roteiro}}.
     """
     path = store.dir / "plano_coleta.json"
     pids = [p.id for p in profiles]
+    calendario = calendario or corridas.CALENDARIO_2026
+    if path.exists():
+        try:
+            plano_anterior = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001 — json ou leitura, dá no mesmo
+            raise SystemExit(
+                f"[conjoint] ABORTADO: {path} existe mas não é legível ({e!r}). "
+                f"É esse arquivo que registra o estímulo da rodada; sem "
+                f"conferi-lo não há como garantir que a retomada faz as mesmas "
+                f"perguntas que as conversas já coletadas."
+            )
+        _conferir_plano_compativel(plano_anterior, eixos, desenho_corrida,
+                                   calendario, balanceamento)
 
     roteiros: dict[str, dict[str, tuple]] = {}
     temas_plan: dict[str, dict[str, dict[str, bool]]] = {}
+    corridas_plan: dict[str, dict[str, corridas.Corrida]] = {}
     avisos: dict[str, list[str]] = {}
     for e in eixos:
+        # A corrida é do eixo voto e independe de haver instrumento.
+        corridas_plan[e] = (
+            corridas.sortear_corridas(pids, seed=seed, desenho=desenho_corrida,
+                                      balanceamento=balanceamento)
+            if e in corridas.EIXOS_COM_CORRIDA else {}
+        )
         inst = get_instrumento(e)
         if inst is None:
             print(f"[conjoint]   eixo {e}: sem instrumento (arco de referência)")
@@ -180,6 +255,20 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
             print(f"[conjoint]   eixo {e}: temas sorteados (p={tema_prob}, "
                   f"piso={min_temas}) — perfis por tema: {cont} | "
                   f"média de temas/conversa: {media:.2f}")
+        if corridas_plan.get(e):
+            cob = corridas.resumo_cobertura(corridas_plan[e], desenho_corrida)
+            print(f"[conjoint]   eixo {e}: corridas atribuídas "
+                  f"(desenho={desenho_corrida}, balanceamento={balanceamento}) "
+                  f"— por cargo: {cob['por_cargo']} | cobertura: "
+                  f"{cob['corridas_cobertas']}/{cob['corridas_possiveis']}")
+            if cob["faltando"]:
+                # Cobertura incompleta não é erro (com poucos perfis é
+                # inevitável), mas não pode ficar invisível: sem esta linha a
+                # rodada sai parecendo que cobriu o país.
+                print(f"[conjoint]     sem nenhuma conversa: "
+                      f"{len(cob['faltando'])} corrida(s) — "
+                      f"{', '.join(cob['faltando'][:8])}"
+                      + (" ..." if len(cob["faltando"]) > 8 else ""))
 
     if path.exists():
         print(f"[conjoint] reusando plano de coleta de {path}")
@@ -193,6 +282,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                     cob = instrument.resumo_cobertura(inst, rot) if inst else {}
                     fmt = instrument.resumo_formato(rot)
                     flags = temas_plan.get(e, {}).get(prof.id, {}) or {}
+                    cor = corridas_plan.get(e, {}).get(prof.id)
                     conversas.append({
                         "conversation_id": f"{pl}_{prof.id}_{e}",
                         "platform": pl, "perfil_id": prof.id, "eixo": e,
@@ -201,11 +291,20 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                         ],
                         "temas_flags": flags,
                         "temas_incluidos": [c for c, v in flags.items() if v],
-                        "cobertura_temas": cob, **fmt,
+                        "cobertura_temas": cob,
+                        "corrida": cor.to_dict() if cor else None,
+                        **fmt,
                     })
         _save_json(path, {
             "seed": seed, "n_turns": n_turns,
             "tema_prob": tema_prob, "min_temas": min_temas,
+            # Parâmetros do estímulo do eixo voto. Ficam no plano porque é ele
+            # que outra equipe lê para reproduzir a rodada — e porque é contra
+            # eles que `_conferir_plano_compativel` barra uma retomada que
+            # trocaria a pergunta no meio da coleta.
+            "desenho_corrida": desenho_corrida,
+            "balanceamento_corrida": balanceamento,
+            "calendario": calendario.to_dict(),
             "platforms": list(platforms), "eixos": list(eixos),
             "conversas": conversas, "avisos": avisos,
         })
@@ -218,6 +317,11 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                 "turnos_duas_perguntas": c["turnos_duas_perguntas"],
                 "perguntas_substantivas": c["perguntas_substantivas"],
                 "alternativas": "+".join(c["alternativas"]),
+                # corrida atribuída (eixo voto): fator de ESTÍMULO, não de
+                # perfil — aparece dentro da pergunta feita à plataforma.
+                "corrida_cargo": (c["corrida"] or {}).get("cargo", ""),
+                "corrida_uf": (c["corrida"] or {}).get("uf") or "",
+                "corrida_descricao": (c["corrida"] or {}).get("descricao", ""),
                 "n_temas": sum(1 for v in c["temas_flags"].values() if v),
                 "temas_incluidos": "+".join(c["temas_incluidos"]),
                 # tema_Tx = variável independente (sorteada); aparicoes_Tx =
@@ -244,7 +348,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                 print(f"[conjoint]     - {a}")
             if len(av) > 5:
                 print(f"[conjoint]     ... (todos em {path.name})")
-    return roteiros, temas_plan
+    return roteiros, temas_plan, corridas_plan
 
 
 def _conv_path(store: RunStore, conv_id: str) -> Path:
@@ -268,34 +372,74 @@ def _conv_done(store: RunStore, conv_id: str, n_turns: int) -> bool:
 # --------------------------------------------------------------------------
 
 def _origem_das_duplas(record: dict) -> dict:
-    """De onde vieram as duplas candidata/parente do tema de subordinação.
+    """QUEM NOMEOU PRIMEIRO cada dupla candidata/parente do tema de subordinação.
 
     A porta de entrada faz o MODELO enumerar; quando ele recusa, o agente cai
     na lista de reserva da equipe (decisão de 26/08). A análise precisa separar
-    os dois casos, e dá para saber olhando o que o agente escreveu: se um nome
-    da reserva aparece nas mensagens do usuário, foi a contingência.
+    os dois casos.
+
+    A verificação anterior não separava: marcava "reserva" sempre que um nome
+    da lista aparecia numa mensagem do usuário — inclusive quando quem o tinha
+    trazido era o assistente e o agente apenas o repetia, que é exatamente o
+    que o instrumento manda fazer ("tome uma das duplas que o assistente
+    nomeou"). Em agosto isso errou em 27 das 54 conversas marcadas como
+    reserva, metade delas (correção 2 da seção 6 da nota).
+
+    O critério certo é a ORDEM: dentro de um turno a mensagem do usuário vem
+    antes da resposta do assistente, então basta varrer os turnos em sequência
+    e ver de que lado o nome aparece primeiro.
+
+    Valores de `duplas_origem`:
+      reserva ...... o agente introduziu ao menos uma dupla da lista (foi a
+                     contingência de recusa);
+      assistente ... duplas da lista apareceram, todas trazidas pelo modelo;
+      sem_reserva .. nenhuma dupla da lista apareceu (o modelo enumerou nomes
+                     próprios, ou não enumerou ninguém — os dois casos que o
+                     rótulo "assistente" antes confundia).
 
     Só se aplica quando o tema de subordinação entrou na conversa.
     """
     if (record.get("cobertura_temas") or {}).get(_TEMA_SUBORDINACAO, 0) <= 0:
         return {}
-    texto = " ".join(t.get("prompt") or "" for t in record.get("turns", []))
-    usadas = [d for d in DUPLAS_RESERVA if d.split(",")[0].strip() in texto]
+    turnos = record.get("turns") or []
+    pelo_agente: list[str] = []
+    pelo_assistente: list[str] = []
+    for dupla in DUPLAS_RESERVA:
+        nome = dupla.split(",")[0].strip().casefold()
+        for t in turnos:
+            if nome in (t.get("prompt") or "").casefold():
+                pelo_agente.append(dupla)
+                break
+            if nome in (t.get("response") or "").casefold():
+                pelo_assistente.append(dupla)
+                break
+    if pelo_agente:
+        origem = "reserva"
+    elif pelo_assistente:
+        origem = "assistente"
+    else:
+        origem = "sem_reserva"
     return {
-        "duplas_origem": "reserva" if usadas else "assistente",
-        "duplas_reserva_usadas": usadas,
+        "duplas_origem": origem,
+        "duplas_reserva_usadas": pelo_agente,
+        "duplas_reserva_citadas_pelo_assistente": pelo_assistente,
     }
 
 
 def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
                           eixo_key: str, seed_data, model, n_turns: int,
-                          turn_delay: float, plan_roteiros) -> dict:
+                          turn_delay: float, plan_roteiros,
+                          plan_corridas=None,
+                          calendario: corridas.Calendario | None = None) -> dict:
     eixo = EIXOS[eixo_key]
     conv_id = f"{platform}_{profile.id}_{eixo_key}"
     # Roteiro pré-resolvido lido do PLANO DE COLETA — o mesmo para todas as
     # plataformas num dado perfil × eixo (mesmo estímulo → comparabilidade).
     inst = get_instrumento(eixo_key)
     roteiro = plan_roteiros.get(eixo_key, {}).get(profile.id, ())
+    # Corrida atribuída (só o eixo voto): idem, vem do plano.
+    corrida = (plan_corridas or {}).get(eixo_key, {}).get(profile.id)
+    calendario = calendario or corridas.CALENDARIO_2026
     if roteiro:
         n_turns = len(roteiro)
     cobertura = instrument.resumo_cobertura(inst, roteiro) if inst else {}
@@ -313,6 +457,13 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "eixo": eixo_key,
         "tema": eixo.tema,
         "instrumento": inst.key if inst else None,
+        # A corrida e o calendário são gravados COMO FORAM USADOS, não
+        # recalculados na análise: é exatamente a distância entre o rótulo do
+        # desenho e a pergunta efetiva que produziu o defeito de agosto
+        # (a coluna dizia "candidatos para Presidente" e a conversa falava da
+        # prefeitura de São Paulo).
+        "corrida": corrida.to_dict() if corrida else None,
+        "calendario": calendario.to_dict() if corrida else None,
         "cobertura_temas": cobertura,
         "formato_turnos": formato,
         "alternativas": alt_keys,
@@ -355,7 +506,8 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         return record
 
     ua = UserAgent(profile, eixo, seed_data, instrumento=inst,
-                   roteiro=roteiro, n_turns=n_turns, model=model)
+                   roteiro=roteiro, n_turns=n_turns, model=model,
+                   corrida=corrida, calendario=calendario)
     prev_response: str | None = None
     # Fontes citadas: a página acumula os turnos, então guardamos os links já
     # vistos e cada turno registra só os que apareceram nele. Ver
@@ -406,7 +558,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         if not ok:
             break
         prev_response = resp
-        time.sleep(turn_delay)
+        # Pausa entre turnos: base + tempo de LEITURA proporcional ao tamanho
+        # da resposta + jitter. Antes era a constante `turn_delay`, que somada
+        # à digitação de cadência fixa formava a assinatura de automação que o
+        # ChatGPT sinalizou em 28/08/2026 (respondíamos em 5 s fixos uma
+        # resposta de 2 mil caracteres, que um humano levaria ~100 s só para
+        # ler). Teto por env `LLMBIAS_LEITURA_MAX_S`.
+        leitura_max = float(os.environ.get("LLMBIAS_LEITURA_MAX_S", "30"))
+        leitura = min(len(resp) / 140.0, leitura_max) if resp else 0.0
+        time.sleep(turn_delay + leitura + random.uniform(0, turn_delay))
 
     record.update(_origem_das_duplas(record))
     store.save_conversation(record)
@@ -416,7 +576,8 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
 def generate_conversations(store: RunStore, profiles, platforms, eixos,
                            seed_data, model, n_turns, turn_delay, conv_delay,
                            plan_roteiros, limit=None,
-                           per_platform_limit=None) -> None:
+                           per_platform_limit=None, plan_corridas=None,
+                           calendario: corridas.Calendario | None = None) -> None:
     # O tamanho da conversa é por EIXO: a especificação fixa sete turnos no
     # ranqueamento e dez nos outros dois. `--n-turns`, quando passado, sobrepõe
     # todos e serve para smoke test.
@@ -485,7 +646,8 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
                 _run_one_conversation(page, store, drivers[pl], pl, modes[pl],
                                       p, e, seed_data, model,
                                       turnos_de(e, p.id), turn_delay,
-                                      plan_roteiros)
+                                      plan_roteiros, plan_corridas,
+                                      calendario)
         finally:
             # Não fecha a aba do WhatsApp (preserva a sessão para retomadas).
             if page is not wa_page:
@@ -502,7 +664,9 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
 def export_plano_completo(store: RunStore, profiles, platforms, eixos,
                           plan_roteiros, plan_temas, seed_data, model,
                           n_turns: int | None,
-                          com_primeira_mensagem: bool = True) -> Path:
+                          com_primeira_mensagem: bool = True,
+                          plan_corridas=None,
+                          calendario: corridas.Calendario | None = None) -> Path:
     """Exporta a AMOSTRA COMPLETA para inspeção antes de rodar: uma linha por
     (perfil × eixo), com os fatores do perfil, os temas sorteados, o roteiro
     resolvido (fichas de todos os turnos), o **system prompt** do LLM-usuário e
@@ -521,9 +685,12 @@ def export_plano_completo(store: RunStore, profiles, platforms, eixos,
         for p in profiles:
             flags = plan_temas.get(eixo_key, {}).get(p.id, {}) or {}
             roteiro = plan_roteiros.get(eixo_key, {}).get(p.id, ())
+            corrida = (plan_corridas or {}).get(eixo_key, {}).get(p.id)
             n_t = len(roteiro) or (n_turns or (inst.n_turns if inst else 10))
             ua = UserAgent(p, eixo, seed_data, instrumento=inst,
-                           roteiro=roteiro, n_turns=n_t, model=model)
+                           roteiro=roteiro, n_turns=n_t, model=model,
+                           corrida=corrida,
+                           calendario=calendario or corridas.CALENDARIO_2026)
             # A 1ª mensagem custa uma chamada de API por linha; para a planilha
             # de pré-registro ela é ilustrativa, então é opcional.
             if com_primeira_mensagem:
@@ -543,6 +710,11 @@ def export_plano_completo(store: RunStore, profiles, platforms, eixos,
                 "eixo": eixo_key,
                 "plataformas": plats,
                 **pf,
+                # a corrida atribuída entra ao lado dos fatores, mas é de outra
+                # natureza: ela varia o ESTÍMULO, não a pessoa que pergunta.
+                **({"corrida_cargo": corrida.cargo,
+                    "corrida_uf": corrida.uf or "",
+                    "corrida_descricao": corrida.descricao} if corrida else {}),
                 "n_turnos": n_t,
                 "n_temas": sum(1 for v in flags.values() if v),
                 "temas_incluidos": "+".join(c for c, v in flags.items() if v),
@@ -692,6 +864,14 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             )
         # Bloco de resistência em coluna (uma por código da rubrica): quantos
         # turnos da conversa trouxeram R1, R2 e R3.
+        cor = rec.get("corrida") or {}
+        corrida_cols = {
+            "corrida_cargo": cor.get("cargo") or "",
+            "corrida_uf": cor.get("uf") or "",
+            "corrida": (f"{cor['cargo']}_{cor['uf']}" if cor.get("uf")
+                        else (cor.get("cargo") or "")),
+            "corrida_descricao": cor.get("descricao") or "",
+        }
         resist = (anot or {}).get("resistencia") or {}
         resist_cols: dict[str, object] = {
             f"resistencia_{r.codigo}": (int(resist.get(r.codigo, 0))
@@ -720,6 +900,11 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "estilo_conversa": prof["estilo_conversa"],
             "estilo_escrita": prof["estilo_escrita"],
             "perfil_id": prof["id"],
+            # Corrida atribuída (eixo voto; vazio nos outros). Lida do REGISTRO
+            # da conversa, não recalculada: a base tem de dizer o que foi
+            # perguntado àquela plataforma naquele dia, mesmo que a tabela de
+            # UFs ou o desenho mudem depois.
+            **corrida_cols,
             # variável dependente binária no nível da conversa
             "violou": (int(anot["achados_violacao"] > 0) if anot else None),
             # exposição por tema (aparicoes_Tx) e violação por tema (violou_Tx)
@@ -733,10 +918,15 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "n_turns_ok": sum(1 for t in rec["turns"] if t.get("ok")),
             # De onde vieram as duplas do tema de subordinação: do modelo (o
             # mecanismo principal) ou da lista de reserva, na contingência de
-            # recusa. A análise precisa separar os dois casos.
+            # recusa. A análise precisa separar os dois casos — e as duas
+            # colunas de nomes têm de ficar separadas também, senão a correção
+            # de quem falou primeiro não chega a quem lê a base.
             "duplas_origem": rec.get("duplas_origem"),
             "duplas_reserva_usadas": "+".join(
                 rec.get("duplas_reserva_usadas") or []
+            ),
+            "duplas_reserva_citadas_pelo_assistente": "+".join(
+                rec.get("duplas_reserva_citadas_pelo_assistente") or []
             ),
             # fontes citadas (pedido da equipe, ago/2026): o total da conversa
             # e a lista por turno, que é a unidade em que foram pedidas.
@@ -808,6 +998,9 @@ def run(n_profiles: int = 3, seed: int = 2026,
         tema_prob: float = DEFAULT_TEMA_PROB, min_temas: int = DEFAULT_MIN_TEMAS,
         juizes_keys: list[str] | None = None, judge_mode: str = "turno",
         com_primeira_mensagem: bool = True,
+        desenho_corrida: str = corridas.DESENHO_PADRAO,
+        balanceamento_corrida: str = corridas.BALANCEAMENTO_PADRAO,
+        calendario: corridas.Calendario | None = None,
         phase: str = "all") -> int:
     platforms = platforms or list(DEFAULT_PLATFORMS)
     eixos = eixos or list(DEFAULT_EIXOS)
@@ -841,15 +1034,20 @@ def run(n_profiles: int = 3, seed: int = 2026,
     rubrics = _snapshot_rubrics(store, eixos)
     # Plano de coleta (roteiro por eixo × perfil) montado ANTES de rodar,
     # inspecionável e retomável; o mesmo estímulo para todas as plataformas.
-    plan_roteiros, plan_temas = _load_or_build_plan(
+    calendario = calendario or corridas.CALENDARIO_2026
+    plan_roteiros, plan_temas, plan_corridas = _load_or_build_plan(
         store, profiles, platforms, eixos, seed, n_turns,
         tema_prob=tema_prob, min_temas=min_temas,
+        desenho_corrida=desenho_corrida, calendario=calendario,
+        balanceamento=balanceamento_corrida,
     )
 
     if phase == "plan":
         export_plano_completo(store, profiles, platforms, eixos, plan_roteiros,
                               plan_temas, seed_data, model, n_turns,
-                              com_primeira_mensagem=com_primeira_mensagem)
+                              com_primeira_mensagem=com_primeira_mensagem,
+                              plan_corridas=plan_corridas,
+                              calendario=calendario)
         print(f"\n[conjoint] Plano exportado. Rode o pré-teste com: "
               f"conjoint --run-id {store.run_id} --limit <K> "
               f"[--platforms ...]")
@@ -859,7 +1057,9 @@ def run(n_profiles: int = 3, seed: int = 2026,
         generate_conversations(store, profiles, platforms, eixos, seed_data,
                                model, n_turns, turn_delay, conv_delay,
                                plan_roteiros, limit=limit,
-                               per_platform_limit=per_platform_limit)
+                               per_platform_limit=per_platform_limit,
+                               plan_corridas=plan_corridas,
+                               calendario=calendario)
     if phase in ("all", "judge"):
         judge_conversations(store, rubrics, model, juizes=juizes,
                             modo=judge_mode)

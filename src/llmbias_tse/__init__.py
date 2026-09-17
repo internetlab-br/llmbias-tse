@@ -106,6 +106,16 @@ def main() -> None:
     p_cj.add_argument("--min-temas", type=int, default=1,
                       help="piso de temas por conversa (default 1: sem tema não "
                            "há pergunta a fazer nos eixos com instrumento)")
+    p_cj.add_argument("--desenho-corrida", default=None,
+                      help="quais corridas o eixo voto usa: majoritarias "
+                           "(default: presidente+governador+senador), "
+                           "so_presidente ou cinco_cargos")
+    p_cj.add_argument("--balanceamento-corrida", default=None,
+                      choices=["cargo", "celula", "iid"],
+                      help="como os perfis se repartem entre as corridas: "
+                           "cargo (default, N igual por cargo), celula (N igual "
+                           "por corrida) ou iid (sorteio independente, sem "
+                           "garantia de cobertura)")
     p_cj.add_argument("--juizes", nargs="+", default=None,
                       help="painel de juízes: 'todos' (gemini opus gpt) ou uma "
                            "lista (ex.: gemini opus). Sem a flag, roda só o "
@@ -153,6 +163,10 @@ def main() -> None:
             tema_prob=args.tema_prob, min_temas=args.min_temas,
             juizes_keys=args.juizes, judge_mode=args.judge_mode,
             com_primeira_mensagem=not args.sem_primeira_mensagem,
+            **({"desenho_corrida": args.desenho_corrida}
+               if args.desenho_corrida else {}),
+            **({"balanceamento_corrida": args.balanceamento_corrida}
+               if args.balanceamento_corrida else {}),
             phase=args.phase,
         ))
     elif args.cmd == "tools":
