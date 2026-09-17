@@ -21,7 +21,7 @@ import random
 import re
 import time
 
-from . import capture
+from . import capture, events
 
 
 def _has_leaf_text(page, needles: list[str]) -> bool:
@@ -115,6 +115,11 @@ class BaseDriver:
             if capture.is_rate_limited(page):
                 attempt += 1
                 if attempt > max_limit_waits:
+                    events.alerta(
+                        events.BLOQUEIO,
+                        f"rate limit não liberou após {attempt-1} esperas",
+                        driver=self.name, esperas=attempt - 1,
+                    )
                     raise capture.RateLimited(
                         f"rate limit não liberou após {attempt-1} esperas"
                     )
@@ -123,6 +128,10 @@ class BaseDriver:
                 print(f"[driver:{self.name}] rate limit — aguardando "
                       f"{int(backoff)}s sem requisições (espera "
                       f"{attempt}/{max_limit_waits})")
+                events.aviso(events.RATE_LIMIT,
+                             f"esperando {int(backoff)}s",
+                             driver=self.name, espera=attempt,
+                             de=max_limit_waits, backoff_s=int(backoff))
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 600.0)
                 continue
@@ -141,6 +150,9 @@ class BaseDriver:
                         f"a plataforma devolveu aviso de bloqueio "
                         f"({marcador!r}) no lugar da resposta"
                     )
+                if attempt:
+                    events.emit(events.RATE_LIMIT_LIBERADO,
+                                driver=self.name, esperas=attempt)
                 return resposta
             except capture.PlataformaBloqueou:
                 raise
@@ -157,6 +169,9 @@ class BaseDriver:
                     print(f"[driver:{self.name}] turno falhou ({e!r}); "
                           f"aguardando {int(wait)}s antes de re-tentar "
                           f"({retries_left} restantes)")
+                    events.aviso(events.ENVIO_FALHOU, repr(e),
+                                 driver=self.name, espera_s=int(wait),
+                                 tentativas_restantes=retries_left)
                     time.sleep(wait)
                     continue  # _submit_once re-checa already_sent p/ não repostar
                 raise
@@ -203,6 +218,21 @@ class BaseDriver:
         Para voltar ao ritmo antigo numa plataforma sensível, sem editar
         código: `LLMBIAS_TYPE_DELAY_MS=18,55`.
         """
+        # Quebra de linha: `keyboard.type` digita "\n" como Enter, e em todo
+        # composer de chat Enter ENVIA. Um prompt com quebra saía como VÁRIAS
+        # mensagens, cada uma respondida em separado, e a captura guardava só a
+        # resposta da última — 28,7% dos turnos na coleta de ago/2026, e
+        # justamente os de DUAS perguntas, que o instrumento cria de propósito.
+        # Shift+Enter insere a quebra sem enviar. Fica aqui, e não no driver do
+        # WhatsApp, porque o caminho de digitação é o mesmo nas 8 plataformas.
+        if "\n" in texto:
+            for i, linha in enumerate(texto.split("\n")):
+                if i:
+                    page.keyboard.press("Shift+Enter")
+                if linha:
+                    self._digitar(page, linha)
+            return
+
         lo, hi = self.type_delay_ms
         restante = texto
         while restante:
@@ -642,7 +672,14 @@ class ClaudeMomentary(Claude):
                 return
             self._dismiss_modal(page)  # nudge/modal pode interceptar o clique
             try:
-                page.get_by_role("button", name="Use incognito").first.click(
+                # O aria-label vem no IDIOMA DA CONTA: "Use incognito" em
+                # inglês, "Usar modo incógnito" em português. Casar só o
+                # inglês fazia o driver não achar o botão e ABORTAR a
+                # conversa — que é o comportamento certo para não vazar
+                # para o histórico, mas deixava a plataforma sem coletar.
+                page.get_by_role(
+                    "button", name=re.compile(r"(use incognito|modo incógnito)", re.I)
+                ).first.click(
                     timeout=5000)
             except Exception as e:
                 last_err = e
@@ -727,7 +764,18 @@ class GrokMomentary(Grok):
     conversa. Se não confirmar, LEVANTA erro (não roda em modo normal)."""
 
     name = "grok_momentary"
-    _switch_to_private = "a[aria-label='Switch to Private Chat']"
+    # O aria-label vem no IDIOMA DA CONTA. Com a conta em português é
+    # "Mudar para bate-papo privado", e casar só o inglês fazia o driver
+    # ABORTAR toda conversa — certo para não vazar ao histórico, mas a
+    # plataforma ficava sem coletar (0/3 no smoke de 16/09).
+    _switch_to_private = (
+        "a[aria-label='Switch to Private Chat'], "
+        "a[aria-label='Mudar para bate-papo privado']"
+    )
+    _switch_to_default = (
+        "[aria-label='Switch to Default Chat'], "
+        "[aria-label='Mudar para bate-papo padrão']"
+    )
     _private_needles = [
         "won't appear in your history",
         "will not be used to train",
@@ -738,7 +786,7 @@ class GrokMomentary(Grok):
     def _momentary_active(self, page) -> bool:
         # Indicador positivo: badge "Switch to Default Chat" OU banner privado.
         try:
-            if page.locator("[aria-label='Switch to Default Chat']").count() > 0:
+            if page.locator(self._switch_to_default).count() > 0:
                 return True
         except Exception:
             pass
@@ -1014,6 +1062,13 @@ class WhatsAppMetaAI(BaseDriver):
     response_selector = ".copyable-text.selectable-text"
     busy_selectors: list[str] = []  # WhatsApp não tem botão de "parar"
     reset_command = "/reset-all-ais"
+    # Balões TRANSITÓRIOS da UI: têm `data-id` próprio e NÃO têm
+    # `data-pre-plain-text`, então são indistinguíveis de uma resposta pelo
+    # filtro de "mensagem recebida". Se capturados, viram resposta falsa
+    # (gravada com ok=True, 8 chars) — 21% dos turnos da coleta de ago/2026
+    # até isto ser corrigido. Ignorá-los faz o laço CONTINUAR esperando.
+    _placeholders = {"Thinking", "Typing…", "Typing...",
+                     "Digitando…", "Digitando..."}
 
     def open_new_chat(self, page) -> None:
         """No WhatsApp não há "chat novo": garante o chat ativo (Meta AI aberto
@@ -1027,9 +1082,20 @@ class WhatsAppMetaAI(BaseDriver):
         self.reset(page)
 
     def _send_raw(self, page, text: str) -> None:
+        """Envia `text` como UMA mensagem.
+
+        `keyboard.type` digita "\n" como Enter, e no WhatsApp Enter ENVIA: um
+        prompt com quebra de linha virava várias mensagens, o Meta AI respondia
+        cada uma, e a captura guardava só a resposta da última. Atingia 28,7%
+        dos turnos — justamente os de DUAS perguntas, que o instrumento cria de
+        propósito. Shift+Enter insere a quebra sem enviar."""
         box = capture.first_visible(page, self.composer_selectors)
         box.click()
-        self._digitar(page, text)
+        for i, linha in enumerate(text.split("\n")):
+            if i:
+                page.keyboard.press("Shift+Enter")
+            if linha:
+                self._digitar(page, linha)
         page.keyboard.press("Enter")
 
     def reset(self, page) -> None:
@@ -1179,7 +1245,8 @@ class WhatsAppMetaAI(BaseDriver):
             # balão recebido mais recente cujo id NÃO existia antes do envio
             newmsg = None
             for m in reversed(msgs):
-                if m["id"] and m["id"] not in before:
+                if (m["id"] and m["id"] not in before
+                        and (m["t"] or "").strip() not in self._placeholders):
                     newmsg = m
                     break
             t = newmsg["t"] if (newmsg and newmsg["t"]) else ""

@@ -22,13 +22,21 @@ DEFAULT_MODEL = os.environ.get("LLMBIAS_GEMINI_MODEL", "gemini-3.5-flash")
 @lru_cache(maxsize=1)
 def get_client() -> genai.Client:
     load_dotenv()
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY não encontrada (defina no .env). "
-            "Necessária para o LLM as a user e o LLM as a judge."
-        )
-    return genai.Client(api_key=key)
+    # A partir da rodada 2 a coleta usa a SEGUNDA chave: as 24 sessões em
+    # paralelo consomem cota de sobra, e separá-la da chave de uso geral evita
+    # que um rate limit da coleta derrube o resto (e vice-versa). `_2` também
+    # é aceito porque é o nome que se escreve por reflexo.
+    # Qual chave entrou vai para o log: rodar com a errada é o tipo de coisa
+    # que só se descobre depois, quando o limite estoura no meio da coleta.
+    for var in ("GEMINI_API_KEY2", "GEMINI_API_KEY_2", "GEMINI_API_KEY"):
+        key = os.environ.get(var)
+        if key:
+            print(f"[llm] usando {var}", flush=True)
+            return genai.Client(api_key=key)
+    raise RuntimeError(
+        "Nenhuma chave do Gemini encontrada (defina GEMINI_API_KEY2 no .env). "
+        "Necessária para o LLM as a user e o LLM as a judge."
+    )
 
 
 def _with_retry(fn, *, tries: int = 4, base_delay: float = 4.0):

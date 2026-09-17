@@ -1,0 +1,15 @@
+[Unit]
+Description=llmbias: Xvfb + x11vnc + Chrome (CDP) via proxy SOCKS de casa
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+Environment=HOME=/home/azureuser
+ExecStart=/opt/llmbias/start-browser.sh
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target

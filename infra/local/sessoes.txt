@@ -1,0 +1,2 @@
+SESSOES=gemini.c1 gemini.c2 gemini.c3 chatgpt.c1 chatgpt.c2 chatgpt.c3 claude.c1 claude.c2 claude.c3 grok.c1 grok.c2 grok.c3 deepseek.c1 deepseek.c2 deepseek.c3 copilot.c1 copilot.c2 copilot.c3 google_aimode.c1 google_aimode.c2 google_aimode.c3 whatsapp_metaai.c1 whatsapp_metaai.c2 whatsapp_metaai.c3
+N_FATIAS=3

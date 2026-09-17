@@ -1,0 +1,91 @@
+# Entrada única da coleta: o painel na raiz e a tela de cada estação em
+# /vnc/<plataforma>/. O cloudflared aponta para cá e só para cá.
+#
+# `handle_path` remove o prefixo antes de repassar, que é o que o noVNC
+# precisa para achar os próprios assets. O websocket do VNC passa pelo
+# reverse_proxy sem configuração extra.
+#
+# PEGADINHA: o noVNC monta a URL do websocket como host + porta + `path`, sem
+# olhar o diretório da página. Sem passar `path=vnc/<plataforma>/websockify` na
+# query, ele tenta ws://host/websockify, o Caddy não casa nenhuma rota e a tela
+# fica em "Failed to connect to server" mesmo com o proxy correto. O painel já
+# monta o link certo (ver `urlTela` em dashboard/static/index.html).
+#
+# ATENÇÃO: não há autenticação aqui. Quem chega nesta porta vê contas logadas
+# e pode operar o browser delas. A autenticação é do Cloudflare Access, na
+# frente; enquanto ela não estiver no ar, publique só em localhost.
+
+:8080 {
+	handle_path /vnc/gemini.c1/* {
+		reverse_proxy coleta-gemini.c1:6080
+	}
+	handle_path /vnc/gemini.c2/* {
+		reverse_proxy coleta-gemini.c2:6080
+	}
+	handle_path /vnc/gemini.c3/* {
+		reverse_proxy coleta-gemini.c3:6080
+	}
+	handle_path /vnc/chatgpt.c1/* {
+		reverse_proxy coleta-chatgpt.c1:6080
+	}
+	handle_path /vnc/chatgpt.c2/* {
+		reverse_proxy coleta-chatgpt.c2:6080
+	}
+	handle_path /vnc/chatgpt.c3/* {
+		reverse_proxy coleta-chatgpt.c3:6080
+	}
+	handle_path /vnc/claude.c1/* {
+		reverse_proxy coleta-claude.c1:6080
+	}
+	handle_path /vnc/claude.c2/* {
+		reverse_proxy coleta-claude.c2:6080
+	}
+	handle_path /vnc/claude.c3/* {
+		reverse_proxy coleta-claude.c3:6080
+	}
+	handle_path /vnc/grok.c1/* {
+		reverse_proxy coleta-grok.c1:6080
+	}
+	handle_path /vnc/grok.c2/* {
+		reverse_proxy coleta-grok.c2:6080
+	}
+	handle_path /vnc/grok.c3/* {
+		reverse_proxy coleta-grok.c3:6080
+	}
+	handle_path /vnc/deepseek.c1/* {
+		reverse_proxy coleta-deepseek.c1:6080
+	}
+	handle_path /vnc/deepseek.c2/* {
+		reverse_proxy coleta-deepseek.c2:6080
+	}
+	handle_path /vnc/deepseek.c3/* {
+		reverse_proxy coleta-deepseek.c3:6080
+	}
+	handle_path /vnc/copilot.c1/* {
+		reverse_proxy coleta-copilot.c1:6080
+	}
+	handle_path /vnc/copilot.c2/* {
+		reverse_proxy coleta-copilot.c2:6080
+	}
+	handle_path /vnc/copilot.c3/* {
+		reverse_proxy coleta-copilot.c3:6080
+	}
+	handle_path /vnc/google_aimode.c1/* {
+		reverse_proxy coleta-google_aimode.c1:6080
+	}
+	handle_path /vnc/google_aimode.c2/* {
+		reverse_proxy coleta-google_aimode.c2:6080
+	}
+	handle_path /vnc/google_aimode.c3/* {
+		reverse_proxy coleta-google_aimode.c3:6080
+	}
+	handle_path /vnc/whatsapp_metaai.c1/* {
+		reverse_proxy coleta-whatsapp_metaai.c1:6080
+	}
+	handle_path /vnc/whatsapp_metaai.c2/* {
+		reverse_proxy coleta-whatsapp_metaai.c2:6080
+	}
+	handle_path /vnc/whatsapp_metaai.c3/* {
+		reverse_proxy coleta-whatsapp_metaai.c3:6080
+	}
+}

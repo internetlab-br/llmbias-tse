@@ -1,0 +1,12 @@
+[Unit]
+Description=llmbias: tunel SOCKS reverso para vm-gemini (IP_DA_VM_GEMINI) - saida pelo IP de casa
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -N -R 1080 -i %h/.ssh/llmbias_azure   -o ExitOnForwardFailure=yes   -o ServerAliveInterval=30   -o ServerAliveCountMax=3   -o StrictHostKeyChecking=accept-new   -o UserKnownHostsFile=%h/.ssh/known_hosts_llmbias   azureuser@IP_DA_VM_GEMINI
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

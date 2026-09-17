@@ -37,7 +37,7 @@ from pathlib import Path
 import pandas as pd
 from patchright.sync_api import sync_playwright
 
-from . import browser, capture, corridas, llm
+from . import browser, capture, corridas, events, llm
 from .axes import EIXOS
 from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
@@ -108,6 +108,35 @@ def _save_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2),
                     encoding="utf-8")
+
+
+def _fatiar_perfis(profiles: list[Profile], fatia: str) -> list[Profile]:
+    """Divide os PERFIS em fatias disjuntas: `"2/3"` = segunda de três.
+
+    Existe para coletar uma plataforma em várias contas ao mesmo tempo sem
+    confundir a conta com o eixo. Se cada conta pegasse um eixo, toda conversa
+    de `voto` viria de uma conta e toda de `genero` de outra — e na rodada 1 o
+    efeito de conta no Meta AI foi grande (a recusa evasiva apareceu em 69% dos
+    turnos de uma conta e em 0% de outra). Fatiando por PERFIL, cada conta roda
+    os TRÊS eixos, então a conta varia dentro de cada eixo.
+
+    A fatia é determinística (ordena por id e reparte por resto), então as
+    fatias são disjuntas sem combinação entre as máquinas, e o balanceamento
+    entre eixos sai por construção: cada fatia faz todos os eixos dos perfis
+    dela, e os tamanhos diferem em no máximo um.
+    """
+    try:
+        i, n = (int(x) for x in fatia.split("/"))
+    except Exception:
+        raise SystemExit(f"--fatia inválida: {fatia!r} (use i/n, ex.: 2/3)")
+    if not (1 <= i <= n):
+        raise SystemExit(f"--fatia fora da faixa: {fatia!r} (1 <= i <= n)")
+    ordenados = sorted(profiles, key=lambda p: p.id)
+    escolhidos = [p for k, p in enumerate(ordenados) if k % n == i - 1]
+    print(f"[conjoint] fatia {i}/{n}: {len(escolhidos)} de {len(profiles)} "
+          f"perfis ({escolhidos[0].id}..{escolhidos[-1].id})"
+          if escolhidos else f"[conjoint] fatia {i}/{n}: nenhum perfil")
+    return escolhidos
 
 
 def _load_or_sample_profiles(store: RunStore, n: int, seed: int) -> list[Profile]:
@@ -451,6 +480,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "run_id": store.run_id,
         "conversation_id": conv_id,
         "platform": platform,
+        # QUAL CONTA coletou esta conversa, declarado pela estação em
+        # `LLMBIAS_CONTA`. Sem isso a conta só se reconstrói por timestamp
+        # depois — foi o que precisou ser feito na rodada 1, e a conta acabou
+        # sendo a variável que mais explicou diferença de comportamento (a
+        # recusa evasiva do Meta AI apareceu em 69% dos turnos de uma conta e
+        # em 0% de outra). Vazio quando a plataforma não exige login
+        # (google_aimode) ou quando a estação não declarou.
+        "conta": os.environ.get("LLMBIAS_CONTA") or None,
+        "sessao": os.environ.get("SESSAO") or None,
         "mode": mode,
         "model_user_agent": model,
         "profile": asdict(profile),
@@ -493,13 +531,20 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "conversation_url": None,
         "turns": [],
     }
+    events.contexto(conversa=conv_id)
+    events.emit(events.CONVERSA_INICIADA, perfil=profile.id, eixo=eixo_key,
+                turnos_previstos=n_turns)
     try:
         driver.open_new_chat(page)
     except Exception as e:
         # NÃO roda os turnos se o chat isolado não abriu: em modo normal isso
         # vazaria a conversa ao histórico (memória entre conversas). Salva sem
         # turnos -> não conta como concluída -> retomada refaz.
+        # Na prática este é o sintoma nº 1 de sessão deslogada ou de mudança na
+        # UI: é alerta, não aviso — a plataforma não anda até alguém olhar.
         print(f"[conjoint] {conv_id}: ABORTADA — chat isolado não abriu: {e!r}")
+        events.alerta(events.CHAT_ISOLADO_FALHOU, repr(e),
+                      perfil=profile.id, eixo=eixo_key, modo=mode)
         record["error"] = repr(e)
         record["finished_at"] = _now_iso()
         store.save_conversation(record)
@@ -520,6 +565,8 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
             user_msg = ua.next_turn(prev_response)
         except Exception as e:
             print(f"[conjoint] [{conv_id}] ERRO ao gerar turno {ti}: {e!r}")
+            events.aviso(events.TURNO_ERRO, f"user_agent: {e!r}",
+                         turno=ti, de=n_turns, origem="user_agent")
             record["turns"].append({
                 "turn": ti, "prompt": "", "response": "", "ok": False,
                 "error": f"user_agent: {e!r}", "started_at": t0,
@@ -540,6 +587,11 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         print(f"[conjoint] [{conv_id}] turno {ti}/{n_turns}: "
               f"user={user_msg[:60]!r} -> resp={len(resp)} chars ok={ok} "
               f"fontes={len(fontes)}")
+        if ok:
+            events.emit(events.TURNO_OK, turno=ti, de=n_turns,
+                        chars=len(resp), fontes=len(fontes))
+        else:
+            events.aviso(events.TURNO_ERRO, err or "", turno=ti, de=n_turns)
         record["turns"].append({
             "turn": ti,
             "prompt": user_msg,
@@ -570,6 +622,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
 
     record.update(_origem_das_duplas(record))
     store.save_conversation(record)
+    turnos = record.get("turns", [])
+    completa = len(turnos) == n_turns and all(t.get("ok") for t in turnos)
+    events.emit(
+        events.CONVERSA_CONCLUIDA if completa else events.CONVERSA_ABORTADA,
+        nivel=events.INFO if completa else events.AVISO,
+        perfil=profile.id, eixo=eixo_key,
+        turnos_ok=sum(1 for t in turnos if t.get("ok")), de=n_turns,
+    )
+    events.contexto(conversa=None)
     return record
 
 
@@ -609,6 +670,14 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
     if not todo:
         print("[conjoint] nada a gerar (todas já concluídas).")
         return
+
+    # O painel lê `data/<run>/events.jsonl`. Um container por plataforma
+    # significa um processo por plataforma, então o campo fixo `plataforma` já
+    # identifica a origem de cada linha.
+    events.configurar(store.dir,
+                      plataforma=platforms[0] if len(platforms) == 1 else None)
+    events.emit(events.COLETA_INICIADA, plataformas=list(platforms),
+                eixos=list(eixos), a_fazer=len(todo), planejadas=len(planned))
 
     drivers = {pl: REGISTRY[PLATFORM_DRIVERS[pl][0]]() for pl in platforms}
     modes = {pl: PLATFORM_DRIVERS[pl][1] for pl in platforms}
@@ -1001,6 +1070,7 @@ def run(n_profiles: int = 3, seed: int = 2026,
         desenho_corrida: str = corridas.DESENHO_PADRAO,
         balanceamento_corrida: str = corridas.BALANCEAMENTO_PADRAO,
         calendario: corridas.Calendario | None = None,
+        fatia: str | None = None,
         phase: str = "all") -> int:
     platforms = platforms or list(DEFAULT_PLATFORMS)
     eixos = eixos or list(DEFAULT_EIXOS)
@@ -1031,6 +1101,9 @@ def run(n_profiles: int = 3, seed: int = 2026,
           f"turnos={n_turns or 'do eixo'} | modelo juiz/usuário={model}")
     seed_data = load_seed()
     profiles = _load_or_sample_profiles(store, n_profiles, seed)
+    profiles_todos = profiles
+    if fatia:
+        profiles = _fatiar_perfis(profiles, fatia)
     rubrics = _snapshot_rubrics(store, eixos)
     # Plano de coleta (roteiro por eixo × perfil) montado ANTES de rodar,
     # inspecionável e retomável; o mesmo estímulo para todas as plataformas.

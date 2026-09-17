@@ -1,0 +1,152 @@
+# Coleta multiplataforma num host só.
+#
+# Uma estação por plataforma, um painel e um Caddy na frente. O Caddy é a
+# única porta publicada: ele serve o painel e faz proxy das telas noVNC, então
+# o cloudflared precisa apontar para um endereço só e ninguém abre 8 portas.
+#
+# Subir tudo:            docker compose up -d
+# Subir uma estação:     docker compose up -d coleta-gemini
+# Ver a tela de uma:     http://localhost:8080/vnc/gemini/vnc.html
+#
+# As estações NÃO começam a coletar sozinhas (AUTO_INICIAR=0): estação nova
+# precisa de um humano logando na conta pela tela remota antes de qualquer
+# coisa. Depois do login, o play é no painel.
+
+name: llmbias-coleta
+
+x-estacao: &estacao
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      # Tem de casar com o dono de `data/` no host. Ver Dockerfile.
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  image: llmbias-coleta:latest
+  restart: unless-stopped
+  # Chrome escreve muito em /dev/shm; o padrão de 64 MB do Docker faz a aba
+  # morrer no meio de uma conversa longa.
+  shm_size: 2gb
+  volumes:
+    - ../../:/app                      # repo (código muda sem rebuild)
+    - ../../data:/dados                # rodadas: o painel lê o mesmo diretório
+  environment: &ambiente
+    RUN_ID: ${RUN_ID:-experimento_2026_09}
+    DADOS: /dados
+    EIXOS: ${EIXOS:-voto genero integridade}
+    LOTE: ${LOTE:-20}
+    TURN_DELAY: ${TURN_DELAY:-5}
+    CONV_DELAY: ${CONV_DELAY:-12}
+    AUTO_INICIAR: ${AUTO_INICIAR:-0}
+    # Trave o IP de saída esperado para o container abortar se alguém subir
+    # isto fora da rede de casa (ou com VPN ligada). Vazio = sem trava.
+    IP_ESPERADO: ${IP_ESPERADO:-}
+    # Só para a variante em nuvem: SOCKS de um exit node residencial.
+    PROXY_SOCKS: ${PROXY_SOCKS:-}
+
+services:
+  coleta-gemini:
+    <<: *estacao
+    container_name: coleta-gemini
+    environment: {<<: *ambiente, PLATAFORMA: gemini}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini:/perfil
+
+  coleta-chatgpt:
+    <<: *estacao
+    container_name: coleta-chatgpt
+    environment: {<<: *ambiente, PLATAFORMA: chatgpt}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt:/perfil
+
+  coleta-claude:
+    <<: *estacao
+    container_name: coleta-claude
+    environment: {<<: *ambiente, PLATAFORMA: claude}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude:/perfil
+
+  coleta-grok:
+    <<: *estacao
+    container_name: coleta-grok
+    environment: {<<: *ambiente, PLATAFORMA: grok}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok:/perfil
+
+  coleta-deepseek:
+    <<: *estacao
+    container_name: coleta-deepseek
+    environment: {<<: *ambiente, PLATAFORMA: deepseek}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek:/perfil
+
+  coleta-copilot:
+    <<: *estacao
+    container_name: coleta-copilot
+    environment: {<<: *ambiente, PLATAFORMA: copilot}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot:/perfil
+
+  coleta-google_aimode:
+    <<: *estacao
+    container_name: coleta-google_aimode
+    environment: {<<: *ambiente, PLATAFORMA: google_aimode}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode:/perfil
+
+  # WhatsApp/Meta AI: a sessão morre se o QR for reescaneado, então o perfil
+  # desta estação é o mais frágil de todos. Não apague este volume.
+  coleta-whatsapp_metaai:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai
+    environment: {<<: *ambiente, PLATAFORMA: whatsapp_metaai}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai:/perfil
+
+  painel:
+    image: llmbias-coleta:latest
+    container_name: coleta-painel
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-lc"]
+    # Lista com um item só, não string: `command:` em string é quebrado em
+    # palavras pelo Compose, e o `bash -lc` receberia só "uv" como script.
+    command:
+      - |
+        uv sync --extra painel
+        exec uv run uvicorn infra.local.dashboard.app:app --host 0.0.0.0 --port 8000
+    working_dir: /app
+    environment:
+      RUN_DIR: /dados/${RUN_ID:-experimento_2026_09}
+      PLATAFORMAS: ${PLATAFORMAS:-gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai}
+      UV_CACHE_DIR: /tmp/uv-cache
+      UV_LINK_MODE: copy
+      UV_PROJECT_ENVIRONMENT: /home/coleta/venv
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: coleta-caddy
+    restart: unless-stopped
+    depends_on: [painel]
+    ports:
+      - "${PORTA:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro

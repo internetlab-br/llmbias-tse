@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Sobe o ambiente grafico headless + Chrome com CDP, SEMPRE atras do
+# proxy SOCKS que sai pelo IP de casa. Fail-closed: se o proxy nao
+# estiver de pe, o Chrome NAO sobe (nunca vaza o IP da Azure).
+set -euo pipefail
+
+DISPLAY_NUM="${DISPLAY_NUM:-77}"
+SCREEN="${SCREEN:-1280x900x24}"
+VNC_PORT="${VNC_PORT:-5901}"
+CDP_PORT="${CDP_PORT:-9333}"
+SOCKS_PORT="${SOCKS_PORT:-1080}"
+PROFILE="${PROFILE:-/home/azureuser/llmbias-tse/tmp/profile}"
+XAUTH="/tmp/llmbias-Xauthority.${DISPLAY_NUM}"
+
+log() { echo "[start-browser] $*"; }
+
+# 1. Exige o tunel SOCKS ANTES de tudo.
+if ! timeout 5 bash -c "</dev/tcp/127.0.0.1/${SOCKS_PORT}" 2>/dev/null; then
+  log "ERRO: proxy SOCKS 127.0.0.1:${SOCKS_PORT} fora do ar."
+  log "Suba o tunel reverso a partir do host residencial antes de iniciar."
+  exit 1
+fi
+SAIDA="$(curl -s --max-time 20 --socks5-hostname 127.0.0.1:${SOCKS_PORT} https://ipinfo.io/ip || true)"
+if [ -z "$SAIDA" ]; then
+  log "ERRO: proxy aberto mas sem saida para a internet."
+  exit 1
+fi
+log "IP de saida pelo proxy: ${SAIDA}"
+
+# 2. Xvfb
+if ! pgrep -f "Xvfb :${DISPLAY_NUM}" >/dev/null; then
+  touch "$XAUTH"; chmod 600 "$XAUTH"
+  Xvfb ":${DISPLAY_NUM}" -screen 0 "${SCREEN}" -nolisten tcp -auth "$XAUTH" &
+  sleep 3
+  log "Xvfb :${DISPLAY_NUM} (${SCREEN})"
+fi
+
+# 3. x11vnc, so no loopback (acesso via tunel SSH)
+if ! pgrep -f "x11vnc -display :${DISPLAY_NUM}" >/dev/null; then
+  x11vnc -display ":${DISPLAY_NUM}" -auth "$XAUTH" -localhost \
+         -rfbport "${VNC_PORT}" -nopw -forever -shared -noxdamage -quiet &
+  sleep 2
+  log "x11vnc em 127.0.0.1:${VNC_PORT}"
+fi
+
+# 4. Chrome atras do SOCKS, com CDP
+mkdir -p "$PROFILE"
+export DISPLAY=":${DISPLAY_NUM}"
+export XAUTHORITY="$XAUTH"
+exec /usr/bin/google-chrome \
+  --remote-debugging-port="${CDP_PORT}" \
+  --user-data-dir="${PROFILE}" \
+  --proxy-server="socks5://127.0.0.1:${SOCKS_PORT}" \
+  --proxy-bypass-list="<-loopback>" \
+  --disable-quic \
+  --lang=pt-BR \
+  --no-first-run \
+  --no-default-browser-check \
+  --window-size=1280,900 \
+  --window-position=0,0 \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-features=CalculateNativeWinOcclusion

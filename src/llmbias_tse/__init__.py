@@ -97,6 +97,11 @@ def main() -> None:
                       help="pausa entre conversas, em s (default 8)")
     p_cj.add_argument("--limit", type=int, default=None,
                       help="limita o nº TOTAL de conversas geradas (smoke test)")
+    p_cj.add_argument("--fatia", default=None,
+                      help="fatia de PERFIS desta máquina, 'i/n' (ex.: 2/3). "
+                           "Para coletar uma plataforma em várias contas ao "
+                           "mesmo tempo sem confundir a conta com o eixo: cada "
+                           "fatia roda os TRÊS eixos nos perfis dela")
     p_cj.add_argument("--per-platform-limit", type=int, default=None,
                       help="limita o nº de conversas POR PLATAFORMA (ex.: 2 no "
                            "pré-teste; útil também na coleta distribuída)")
@@ -160,6 +165,7 @@ def main() -> None:
             run_id=args.run_id, model=args.model, turn_delay=args.turn_delay,
             conv_delay=args.conv_delay, limit=args.limit,
             per_platform_limit=args.per_platform_limit,
+            fatia=args.fatia,
             tema_prob=args.tema_prob, min_temas=args.min_temas,
             juizes_keys=args.juizes, judge_mode=args.judge_mode,
             com_primeira_mensagem=not args.sem_primeira_mensagem,
