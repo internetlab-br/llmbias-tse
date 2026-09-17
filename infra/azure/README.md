@@ -15,7 +15,7 @@ sair por um **tunel SOCKS reverso** aberto **de dentro da rede de casa**:
 ```
 
 O host residencial e um servidor sempre ligado em casa, com o mesmo IP publico da rede domestica
-maquina Windows do Julio. `ssh -R 1080` abre na VM uma porta SOCKS que sai pela
+maquina Windows do pesquisador. `ssh -R 1080` abre na VM uma porta SOCKS que sai pela
 da casa, entao o Chrome da Azure aparece para as plataformas com o IP
 residencial.
 
@@ -128,7 +128,7 @@ quando se quer voltar depois preservando os perfis logados.
 - **O IP de casa muda.** Foi o que matou a coleta em 31/08: o IP residencial
   trocou, a regra de NSG (presa ao IP antigo) barrou o SSH, o tunel caiu e o
   Chrome, fail-closed, parou. Ninguem percebeu por 2 dias. Ou usar DNS dinamico
-  na regra, ou o watchdog tem que alertar em algum canal que o Julio le, nao so
+  na regra, ou o watchdog tem que alertar em algum canal que a equipe le, nao so
   num arquivo de log dentro da VM.
 - **Nao rodar duas contas da mesma plataforma pelo mesmo IP de saida** sem
   pensar: as plataformas correlacionam. A `vm-gemini2` usava uma 2a conta Google
