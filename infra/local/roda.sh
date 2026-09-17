@@ -53,6 +53,11 @@ completas() {
       --run-dir "$RUN_DIR" 2>/dev/null | grep -oP '^COMPLETAS=\K[0-9]+'
 }
 
+alvo() {
+  uv run python infra/local/progresso.py "$PLATAFORMA" \
+      --run-dir "$RUN_DIR" 2>/dev/null | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
+}
+
 evento coleta_iniciada info "runner de $PLATAFORMA no ar"
 SEM_PROGRESSO=0
 
@@ -69,6 +74,18 @@ while true; do
       --phase generate --per-platform-limit "$LOTE" \
       --turn-delay "$TURN_DELAY" --conv-delay "$CONV_DELAY"
   DEPOIS="$(completas)"; DEPOIS="${DEPOIS:-0}"
+
+  # ALVO ATINGIDO não é impedimento. Sem esta checagem, a estação que termina
+  # produz lotes sem conversa nova por definição, bate os 3 lotes e grita
+  # `precisa_humano` — alarme falso que, com 24 sessões, afoga o painel e
+  # esconde os alarmes de verdade. (Visto no smoke de 17/09: o WhatsApp
+  # apareceu "com erro" em 3/3.)
+  ALVO_ATUAL="$(alvo)"; ALVO_ATUAL="${ALVO_ATUAL:-0}"
+  if [ "$ALVO_ATUAL" -gt 0 ] && [ "$DEPOIS" -ge "$ALVO_ATUAL" ]; then
+    marcar parado "alvo atingido (${DEPOIS}/${ALVO_ATUAL})"
+    evento coleta_encerrada info "alvo atingido: ${DEPOIS}/${ALVO_ATUAL}"
+    exit 0
+  fi
 
   if [ "$DEPOIS" -le "$ANTES" ]; then
     SEM_PROGRESSO=$((SEM_PROGRESSO + 1))
