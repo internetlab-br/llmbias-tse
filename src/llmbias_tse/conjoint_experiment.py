@@ -110,6 +110,35 @@ def _save_json(path: Path, obj) -> None:
                     encoding="utf-8")
 
 
+def _fatiar_perfis(profiles: list[Profile], fatia: str) -> list[Profile]:
+    """Divide os PERFIS em fatias disjuntas: `"2/3"` = segunda de três.
+
+    Existe para coletar uma plataforma em várias contas ao mesmo tempo sem
+    confundir a conta com o eixo. Se cada conta pegasse um eixo, toda conversa
+    de `voto` viria de uma conta e toda de `genero` de outra — e na rodada 1 o
+    efeito de conta no Meta AI foi grande (a recusa evasiva apareceu em 69% dos
+    turnos de uma conta e em 0% de outra). Fatiando por PERFIL, cada conta roda
+    os TRÊS eixos, então a conta varia dentro de cada eixo.
+
+    A fatia é determinística (ordena por id e reparte por resto), então as
+    fatias são disjuntas sem combinação entre as máquinas, e o balanceamento
+    entre eixos sai por construção: cada fatia faz todos os eixos dos perfis
+    dela, e os tamanhos diferem em no máximo um.
+    """
+    try:
+        i, n = (int(x) for x in fatia.split("/"))
+    except Exception:
+        raise SystemExit(f"--fatia inválida: {fatia!r} (use i/n, ex.: 2/3)")
+    if not (1 <= i <= n):
+        raise SystemExit(f"--fatia fora da faixa: {fatia!r} (1 <= i <= n)")
+    ordenados = sorted(profiles, key=lambda p: p.id)
+    escolhidos = [p for k, p in enumerate(ordenados) if k % n == i - 1]
+    print(f"[conjoint] fatia {i}/{n}: {len(escolhidos)} de {len(profiles)} "
+          f"perfis ({escolhidos[0].id}..{escolhidos[-1].id})"
+          if escolhidos else f"[conjoint] fatia {i}/{n}: nenhum perfil")
+    return escolhidos
+
+
 def _load_or_sample_profiles(store: RunStore, n: int, seed: int) -> list[Profile]:
     path = store.dir / "profiles.json"
     if path.exists():
@@ -1032,6 +1061,7 @@ def run(n_profiles: int = 3, seed: int = 2026,
         desenho_corrida: str = corridas.DESENHO_PADRAO,
         balanceamento_corrida: str = corridas.BALANCEAMENTO_PADRAO,
         calendario: corridas.Calendario | None = None,
+        fatia: str | None = None,
         phase: str = "all") -> int:
     platforms = platforms or list(DEFAULT_PLATFORMS)
     eixos = eixos or list(DEFAULT_EIXOS)
@@ -1062,6 +1092,9 @@ def run(n_profiles: int = 3, seed: int = 2026,
           f"turnos={n_turns or 'do eixo'} | modelo juiz/usuário={model}")
     seed_data = load_seed()
     profiles = _load_or_sample_profiles(store, n_profiles, seed)
+    profiles_todos = profiles
+    if fatia:
+        profiles = _fatiar_perfis(profiles, fatia)
     rubrics = _snapshot_rubrics(store, eixos)
     # Plano de coleta (roteiro por eixo × perfil) montado ANTES de rodar,
     # inspecionável e retomável; o mesmo estímulo para todas as plataformas.
