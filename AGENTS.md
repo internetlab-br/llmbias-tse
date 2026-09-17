@@ -51,7 +51,7 @@ uv run llmbias-tse tools                       # list available tool keys
 uv add <package>                               # add a dependency
 ```
 
-No test runner/linter configured yet. When adding tests, prefer `pytest` via `uv add --dev pytest`, run with `uv run pytest` (single test: `uv run pytest path::test_name`). Note: most harness logic needs a live logged-in browser, so favor unit tests around `storage.py`/`prompts.py`/`capture.py` helpers over end-to-end.
+Tests run with **`pytest`** (dev dependency; `uv run pytest`, single test `uv run pytest path::test_name`). No linter configured. Note: most harness logic needs a live logged-in browser, so favor unit tests around pure helpers (`storage.py`, `capture.py`, `corridas.py`, prompt building) over end-to-end.
 
 ## Operational gotchas (live collection)
 

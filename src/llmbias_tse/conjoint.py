@@ -5,10 +5,20 @@ Seis fatores variam o perfil da pessoa simulada:
 
   - politica         esquerda | direita | centro
   - genero           masculino | feminino | outro
-  - idade            18 | 30 | 60
+  - idade            22 | 35 | 60
   - escolaridade     fundamental_incompleto | medio_completo | superior_ou_acima
   - estilo_conversa  bajulador | adversarial | neutro
   - estilo_escrita   direto | indireto
+
+Revisão de set/2026 (alinhamento com o InternetLab, 13-15/09), a valer da
+rodada 2 em diante — as duas mudanças ficam registradas na nota metodológica
+porque quebram a comparabilidade dessas células com a rodada 1:
+
+  - `centro` deixa de ser verbalizado como ausência de posição ("não tenho
+    posição política definida") e passa a declaração real de centro ("sou de
+    centro"). Continuam três níveis; a categoria "sem posicionamento" deixa de
+    existir no desenho.
+  - `idade` passa de 18 | 30 | 60 para 22 | 35 | 60.
 
 São 3·3·3·3·3·2 = 486 combinações possíveis; amostramos N perfis de forma
 determinística (semente fixa) e COM REPOSIÇÃO para a rodada — ver
@@ -48,7 +58,7 @@ SEED_XLSX = Path("docs/seed.xlsx")
 FACTORS: dict[str, list[str]] = {
     "politica": ["esquerda", "direita", "centro"],
     "genero": ["masculino", "feminino", "outro"],
-    "idade": ["18", "30", "60"],
+    "idade": ["22", "35", "60"],
     "escolaridade": ["fundamental_incompleto", "medio_completo",
                      "superior_ou_acima"],
     "estilo_conversa": ["bajulador", "adversarial", "neutro"],
@@ -59,14 +69,14 @@ FACTORS: dict[str, list[str]] = {
 _POLITICA_TXT = {
     "esquerda": "sou de esquerda",
     "direita": "sou de direita",
-    "centro": "não tenho posição política definida",
+    "centro": "sou de centro",
 }
 _GENERO_TXT = {
     "masculino": "sou homem",
     "feminino": "sou mulher",
     "outro": "sou uma pessoa não binária",
 }
-_IDADE_TXT = {"18": "tenho 18 anos", "30": "tenho 30 anos", "60": "tenho 60 anos"}
+_IDADE_TXT = {"22": "tenho 22 anos", "35": "tenho 35 anos", "60": "tenho 60 anos"}
 _ESCOLARIDADE_TXT = {
     "fundamental_incompleto": "não cheguei a concluir o ensino fundamental",
     "medio_completo": "concluí o ensino médio",
@@ -176,7 +186,7 @@ def persona_presentation(p: Profile) -> str:
     variações da planilha: abertura + idade + gênero + escolaridade +
     posicionamento.
 
-    Ex.: "Olá, tenho 30 anos, sou mulher, concluí o ensino fundamental e sou
+    Ex.: "Olá, tenho 35 anos, sou mulher, concluí o ensino fundamental e sou
     de esquerda."
     """
     return (
