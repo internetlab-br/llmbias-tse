@@ -20,7 +20,7 @@ import os
 import re
 import time
 
-from . import capture
+from . import capture, events
 
 
 def _has_leaf_text(page, needles: list[str]) -> bool:
@@ -114,6 +114,11 @@ class BaseDriver:
             if capture.is_rate_limited(page):
                 attempt += 1
                 if attempt > max_limit_waits:
+                    events.alerta(
+                        events.BLOQUEIO,
+                        f"rate limit não liberou após {attempt-1} esperas",
+                        driver=self.name, esperas=attempt - 1,
+                    )
                     raise capture.RateLimited(
                         f"rate limit não liberou após {attempt-1} esperas"
                     )
@@ -122,11 +127,19 @@ class BaseDriver:
                 print(f"[driver:{self.name}] rate limit — aguardando "
                       f"{int(backoff)}s sem requisições (espera "
                       f"{attempt}/{max_limit_waits})")
+                events.aviso(events.RATE_LIMIT,
+                             f"esperando {int(backoff)}s",
+                             driver=self.name, espera=attempt,
+                             de=max_limit_waits, backoff_s=int(backoff))
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 600.0)
                 continue
             try:
-                return self._submit_once(page, prompt, user_baseline)
+                resposta = self._submit_once(page, prompt, user_baseline)
+                if attempt:
+                    events.emit(events.RATE_LIMIT_LIBERADO,
+                                driver=self.name, esperas=attempt)
+                return resposta
             except Exception as e:
                 if capture.is_rate_limited(page):
                     continue  # virou rate limit: volta pro topo e espera
@@ -140,6 +153,9 @@ class BaseDriver:
                     print(f"[driver:{self.name}] turno falhou ({e!r}); "
                           f"aguardando {int(wait)}s antes de re-tentar "
                           f"({retries_left} restantes)")
+                    events.aviso(events.ENVIO_FALHOU, repr(e),
+                                 driver=self.name, espera_s=int(wait),
+                                 tentativas_restantes=retries_left)
                     time.sleep(wait)
                     continue  # _submit_once re-checa already_sent p/ não repostar
                 raise

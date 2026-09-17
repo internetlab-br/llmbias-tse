@@ -34,7 +34,7 @@ from pathlib import Path
 import pandas as pd
 from patchright.sync_api import sync_playwright
 
-from . import browser, capture, llm
+from . import browser, capture, events, llm
 from .axes import EIXOS
 from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
@@ -342,13 +342,20 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "conversation_url": None,
         "turns": [],
     }
+    events.contexto(conversa=conv_id)
+    events.emit(events.CONVERSA_INICIADA, perfil=profile.id, eixo=eixo_key,
+                turnos_previstos=n_turns)
     try:
         driver.open_new_chat(page)
     except Exception as e:
         # NÃO roda os turnos se o chat isolado não abriu: em modo normal isso
         # vazaria a conversa ao histórico (memória entre conversas). Salva sem
         # turnos -> não conta como concluída -> retomada refaz.
+        # Na prática este é o sintoma nº 1 de sessão deslogada ou de mudança na
+        # UI: é alerta, não aviso — a plataforma não anda até alguém olhar.
         print(f"[conjoint] {conv_id}: ABORTADA — chat isolado não abriu: {e!r}")
+        events.alerta(events.CHAT_ISOLADO_FALHOU, repr(e),
+                      perfil=profile.id, eixo=eixo_key, modo=mode)
         record["error"] = repr(e)
         record["finished_at"] = _now_iso()
         store.save_conversation(record)
@@ -368,6 +375,8 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
             user_msg = ua.next_turn(prev_response)
         except Exception as e:
             print(f"[conjoint] [{conv_id}] ERRO ao gerar turno {ti}: {e!r}")
+            events.aviso(events.TURNO_ERRO, f"user_agent: {e!r}",
+                         turno=ti, de=n_turns, origem="user_agent")
             record["turns"].append({
                 "turn": ti, "prompt": "", "response": "", "ok": False,
                 "error": f"user_agent: {e!r}", "started_at": t0,
@@ -388,6 +397,11 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         print(f"[conjoint] [{conv_id}] turno {ti}/{n_turns}: "
               f"user={user_msg[:60]!r} -> resp={len(resp)} chars ok={ok} "
               f"fontes={len(fontes)}")
+        if ok:
+            events.emit(events.TURNO_OK, turno=ti, de=n_turns,
+                        chars=len(resp), fontes=len(fontes))
+        else:
+            events.aviso(events.TURNO_ERRO, err or "", turno=ti, de=n_turns)
         record["turns"].append({
             "turn": ti,
             "prompt": user_msg,
@@ -410,6 +424,15 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
 
     record.update(_origem_das_duplas(record))
     store.save_conversation(record)
+    turnos = record.get("turns", [])
+    completa = len(turnos) == n_turns and all(t.get("ok") for t in turnos)
+    events.emit(
+        events.CONVERSA_CONCLUIDA if completa else events.CONVERSA_ABORTADA,
+        nivel=events.INFO if completa else events.AVISO,
+        perfil=profile.id, eixo=eixo_key,
+        turnos_ok=sum(1 for t in turnos if t.get("ok")), de=n_turns,
+    )
+    events.contexto(conversa=None)
     return record
 
 
@@ -448,6 +471,14 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
     if not todo:
         print("[conjoint] nada a gerar (todas já concluídas).")
         return
+
+    # O painel lê `data/<run>/events.jsonl`. Um container por plataforma
+    # significa um processo por plataforma, então o campo fixo `plataforma` já
+    # identifica a origem de cada linha.
+    events.configurar(store.dir,
+                      plataforma=platforms[0] if len(platforms) == 1 else None)
+    events.emit(events.COLETA_INICIADA, plataformas=list(platforms),
+                eixos=list(eixos), a_fazer=len(todo), planejadas=len(planned))
 
     drivers = {pl: REGISTRY[PLATFORM_DRIVERS[pl][0]]() for pl in platforms}
     modes = {pl: PLATFORM_DRIVERS[pl][1] for pl in platforms}

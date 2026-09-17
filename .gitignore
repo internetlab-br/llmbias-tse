@@ -27,3 +27,8 @@ docs/*.docx
 # contornar os limites das plataformas: é procedimento da equipe,
 # não metodologia. A metodologia é que tem de ser pública.
 docs/interno/
+
+# Perfis do Chrome das estações de coleta: contêm SESSÃO LOGADA das contas.
+# Nunca versionar.
+infra/local/perfis/
+infra/local/.env

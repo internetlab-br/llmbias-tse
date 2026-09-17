@@ -21,6 +21,14 @@ dependencies = [
     "pyarrow>=25.0.1",
 ]
 
+[project.optional-dependencies]
+# Painel de coleta (infra/local/dashboard). Fora das dependências principais:
+# quem só roda a coleta ou a análise não precisa de servidor web.
+painel = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+]
+
 [project.scripts]
 llmbias-tse = "llmbias_tse:main"
 

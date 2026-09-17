@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coleta llmbias-tse</title>
+<style>
+  :root {
+    --fundo: #12141a;
+    --carta: #1a1d26;
+    --borda: #2a2f3d;
+    --texto: #e6e8ee;
+    --fraco: #939aad;
+    --ok: #4ec9a5;
+    --atencao: #e0b455;
+    --erro: #e26d6d;
+    --acento: #6ea8fe;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--fundo); color: var(--texto);
+    font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .topo {
+    display: flex; align-items: baseline; gap: 16px;
+    flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .sub { color: var(--fraco); font-size: 13px; }
+  .barra-geral {
+    height: 6px; background: var(--borda); border-radius: 3px;
+    margin: 14px 0 22px; overflow: hidden;
+  }
+  .barra-geral > i { display: block; height: 100%; background: var(--acento); }
+
+  .chamado {
+    background: rgba(226,109,109,.12); border: 1px solid var(--erro);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 20px;
+  }
+  .chamado b { color: var(--erro); }
+
+  .grade {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  }
+  .carta {
+    background: var(--carta); border: 1px solid var(--borda);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .carta.alerta { border-color: var(--erro); }
+  .carta.pausado { opacity: .62; }
+
+  .cab { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .nome { font-weight: 600; font-size: 15px; }
+  .pilula {
+    font-size: 11px; padding: 2px 8px; border-radius: 99px;
+    border: 1px solid var(--borda); color: var(--fraco);
+    margin-left: auto; white-space: nowrap;
+  }
+  .pilula.rodando { color: var(--ok); border-color: var(--ok); }
+  .pilula.pausado { color: var(--atencao); border-color: var(--atencao); }
+  .pilula.precisa_humano, .pilula.parado {
+    color: var(--erro); border-color: var(--erro);
+  }
+
+  .num { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .num small { font-size: 13px; color: var(--fraco); font-weight: 400; }
+  .barra {
+    height: 5px; background: var(--borda); border-radius: 3px;
+    margin: 8px 0 10px; overflow: hidden;
+  }
+  .barra > i { display: block; height: 100%; background: var(--ok); }
+
+  .linhas { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+            font-size: 12.5px; color: var(--fraco); margin-bottom: 10px; }
+  .linhas b { color: var(--texto); font-weight: 500;
+              font-variant-numeric: tabular-nums; }
+  .ruim { color: var(--erro) !important; }
+  .morno { color: var(--atencao) !important; }
+
+  .motivo {
+    font-size: 12px; color: var(--erro); background: rgba(226,109,109,.1);
+    border-radius: 6px; padding: 6px 8px; margin-bottom: 10px;
+  }
+  .motivo.neutro { color: var(--atencao); background: rgba(224,180,85,.1); }
+  .acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, a.botao {
+    font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: none;
+    background: transparent; color: var(--texto);
+    border: 1px solid var(--borda); border-radius: 6px; padding: 5px 10px;
+  }
+  button:hover, a.botao:hover { border-color: var(--acento); color: var(--acento); }
+  a.botao { border-color: var(--acento); color: var(--acento); }
+  .erro-fetch { color: var(--erro); }
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>Coleta llmbias-tse</h1>
+  <span class="sub" id="cabecalho">carregando...</span>
+</div>
+<div class="barra-geral"><i id="barra-geral" style="width:0%"></i></div>
+
+<div id="chamados"></div>
+<div class="grade" id="grade"></div>
+
+<script>
+const fmt = n => n === null || n === undefined ? "--" : n;
+
+// A caixa de motivo só aparece quando ainda importa: enquanto a estação pede
+// humano (mostra o alerta) ou está fora do ar por decisão de alguém (mostra a
+// justificativa). Depois de "resolvido" ela some, senão o cartão continuaria
+// parecendo problemático depois de o problema ter sido resolvido.
+function motivoHTML(e) {
+  if (e.precisa_humano) {
+    const a = e.ultimo_alerta;
+    const txt = e.motivo || (a && (a.mensagem || a.tipo)) || "precisa de atenção";
+    return `<div class="motivo">${txt}</div>`;
+  }
+  if (e.estado === "pausado" || e.estado === "parado") {
+    return e.motivo ? `<div class="motivo neutro">${e.motivo}</div>` : "";
+  }
+  return "";
+}
+
+// O noVNC monta a URL do websocket a partir de host e porta e IGNORA o
+// diretório da página, então atrás de um proxy com prefixo ele tentaria
+// ws://host/websockify e falharia com "Failed to connect to server". O
+// parâmetro `path` é o que o faz respeitar o prefixo do Caddy.
+function urlTela(plataforma) {
+  const base = `/vnc/${plataforma}/`;
+  return `${base}vnc.html?autoconnect=1&resize=scale&path=${encodeURIComponent(base.slice(1) + "websockify")}`;
+}
+
+function cartaHTML(e) {
+  const p = e.progresso;
+  const pct = p.pct ?? 0;
+  const parado = e.parado_ha_min;
+  // Uma estação que não emite evento há mais de 30 min está parada de fato,
+  // mesmo que o estado diga "rodando". É esse descompasso que a rodada de
+  // agosto não mostrava para ninguém.
+  const classeParado = parado === null ? "" : parado > 30 ? "ruim" : parado > 10 ? "morno" : "";
+  return `
+  <div class="carta ${e.precisa_humano ? "alerta" : ""} ${e.estado === "pausado" ? "pausado" : ""}">
+    <div class="cab">
+      <span class="nome">${e.plataforma}</span>
+      <span class="pilula ${e.estado}">${e.estado.replace("_", " ")}</span>
+    </div>
+    <div class="num">${p.completas}<small> / ${p.alvo || "?"} conversas</small></div>
+    <div class="barra"><i style="width:${Math.min(pct, 100)}%"></i></div>
+    <div class="linhas">
+      <span>por hora</span><b>${p.conversas_por_hora}</b>
+      <span>faltam (ETA)</span><b>${p.eta_horas ? p.eta_horas + " h" : "--"}</b>
+      <span>incompletas</span><b>${p.incompletas}</b>
+      <span>rate limit (24h)</span><b class="${e.rate_limits_24h > 0 ? "morno" : ""}">${e.rate_limits_24h}</b>
+      <span>erros (24h)</span><b class="${e.erros_24h > 0 ? "morno" : ""}">${e.erros_24h}</b>
+      <span>último evento</span><b class="${classeParado}">${parado === null ? "--" : parado + " min"}</b>
+    </div>
+    ${motivoHTML(e)}
+    <div class="acoes">
+      ${e.estado === "rodando"
+        ? `<button onclick="acao('${e.plataforma}','pausar')">pausar</button>`
+        : `<button onclick="acao('${e.plataforma}','play')">retomar</button>`}
+      <a class="botao" href="${urlTela(e.plataforma)}" target="_blank">abrir browser</a>
+      ${e.precisa_humano ? `<button onclick="acao('${e.plataforma}','resolver')">resolvido</button>` : ""}
+    </div>
+  </div>`;
+}
+
+async function acao(plataforma, nome) {
+  await fetch(`/api/estacao/${plataforma}/${nome}`, {method: "POST"});
+  carregar();
+}
+
+async function carregar() {
+  const cab = document.getElementById("cabecalho");
+  try {
+    const r = await fetch("/api/status");
+    const d = await r.json();
+    const t = d.total;
+    cab.className = "sub";
+    cab.textContent = `${d.run_id} · ${t.completas}/${t.alvo || "?"} conversas`
+      + (t.pct !== null ? ` (${t.pct}%)` : "")
+      + ` · ${new Date(d.gerado_em).toLocaleTimeString("pt-BR")}`;
+    document.getElementById("barra-geral").style.width = (t.pct ?? 0) + "%";
+
+    document.getElementById("chamados").innerHTML = d.precisam_humano.length
+      ? `<div class="chamado"><b>Precisa de humano:</b> ${d.precisam_humano.join(", ")}.
+         Abra o browser da estação, resolva (login, troca de conta, bloqueio) e clique em "resolvido".</div>`
+      : "";
+    document.getElementById("grade").innerHTML = d.estacoes.map(cartaHTML).join("");
+  } catch (err) {
+    cab.className = "sub erro-fetch";
+    cab.textContent = "painel sem contato com a API: " + err;
+  }
+}
+
+carregar();
+setInterval(carregar, 5000);
+</script>
+</body>
+</html>
