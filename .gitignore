@@ -38,3 +38,4 @@ infra/local/.env
 # que não têm o que fazer num repositório de código.
 handoff/
 HANDOFF.md
+infra/local/.env.*
