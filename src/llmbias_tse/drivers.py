@@ -672,7 +672,14 @@ class ClaudeMomentary(Claude):
                 return
             self._dismiss_modal(page)  # nudge/modal pode interceptar o clique
             try:
-                page.get_by_role("button", name="Use incognito").first.click(
+                # O aria-label vem no IDIOMA DA CONTA: "Use incognito" em
+                # inglês, "Usar modo incógnito" em português. Casar só o
+                # inglês fazia o driver não achar o botão e ABORTAR a
+                # conversa — que é o comportamento certo para não vazar
+                # para o histórico, mas deixava a plataforma sem coletar.
+                page.get_by_role(
+                    "button", name=re.compile(r"(use incognito|modo incógnito)", re.I)
+                ).first.click(
                     timeout=5000)
             except Exception as e:
                 last_err = e
