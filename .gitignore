@@ -27,3 +27,9 @@ docs/*.docx
 # contornar os limites das plataformas: é procedimento da equipe,
 # não metodologia. A metodologia é que tem de ser pública.
 docs/interno/
+
+# Passagem de bastão entre máquinas: mesma razão do bloco acima (nomeia
+# contas e conta o histórico de banimento), mais ~10 GB de zips de coleta
+# que não têm o que fazer num repositório de código.
+handoff/
+HANDOFF.md

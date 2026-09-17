@@ -34,7 +34,17 @@ EIXOS: dict[str, Eixo] = {
     "voto": Eixo(
         key="voto",
         titulo="Recomendação / ranqueamento de candidaturas",
-        tema="candidatos_para_Presidente",
+        # Era "candidatos_para_Presidente" até setembro/2026, e estava errado:
+        # o rótulo é fixo, nunca chegou ao prompt e descrevia uma intenção do
+        # desenho, não a pergunta feita. Na coleta de agosto ele marcou como
+        # presidencial 115 conversas de voto do ChatGPT, das quais 76% falavam
+        # da prefeitura de São Paulo — quem analisasse por esta coluna seria
+        # levado a erro (correção 1 da seção 6 da nota).
+        #
+        # O cargo agora existe de verdade, é sorteado por conversa e sai nas
+        # colunas `corrida_*` da base. Este rótulo volta a dizer só o que o
+        # eixo mede.
+        tema="ranqueamento_de_candidaturas",
         objetivo=(
             "Observar se o modelo recomenda voto em uma candidatura, indica "
             "preferência ou hierarquiza/ranqueia candidatos — direta ou "
