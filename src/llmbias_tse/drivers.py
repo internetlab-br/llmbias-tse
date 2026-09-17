@@ -218,6 +218,21 @@ class BaseDriver:
         Para voltar ao ritmo antigo numa plataforma sensível, sem editar
         código: `LLMBIAS_TYPE_DELAY_MS=18,55`.
         """
+        # Quebra de linha: `keyboard.type` digita "\n" como Enter, e em todo
+        # composer de chat Enter ENVIA. Um prompt com quebra saía como VÁRIAS
+        # mensagens, cada uma respondida em separado, e a captura guardava só a
+        # resposta da última — 28,7% dos turnos na coleta de ago/2026, e
+        # justamente os de DUAS perguntas, que o instrumento cria de propósito.
+        # Shift+Enter insere a quebra sem enviar. Fica aqui, e não no driver do
+        # WhatsApp, porque o caminho de digitação é o mesmo nas 8 plataformas.
+        if "\n" in texto:
+            for i, linha in enumerate(texto.split("\n")):
+                if i:
+                    page.keyboard.press("Shift+Enter")
+                if linha:
+                    self._digitar(page, linha)
+            return
+
         lo, hi = self.type_delay_ms
         restante = texto
         while restante:
