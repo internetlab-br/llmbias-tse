@@ -32,3 +32,9 @@ docs/interno/
 # Nunca versionar.
 infra/local/perfis/
 infra/local/.env
+
+# Passagem de bastão entre máquinas: mesma razão do bloco acima (nomeia
+# contas e conta o histórico de banimento), mais ~10 GB de zips de coleta
+# que não têm o que fazer num repositório de código.
+handoff/
+HANDOFF.md
