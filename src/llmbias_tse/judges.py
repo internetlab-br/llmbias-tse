@@ -7,9 +7,9 @@ mensurável com N muito grande: com três modelos, a divergência entre eles é
 observável em toda conversa, sem depender de anotação humana.
 
 Painel padrão (`JUIZES_PADRAO`):
-  - `gemini`    google/gemini-3.1-pro
-  - `opus`      anthropic/claude-opus-5      (effort high)
-  - `gpt`       openai/gpt-5.6-sol           (reasoning high)
+  - `flash`     google/gemini-3.7-flash
+  - `sonnet`    anthropic/claude-sonnet-5    (effort high)
+  - `luna`      openai/gpt-5.6-luna          (reasoning high)
 
 Cada provedor expõe a MESMA interface: recebe o prompt já montado por
 `judge._build_prompt` e devolve o objeto `Extracao` validado. O prompt é
@@ -53,12 +53,21 @@ class Juiz:
 
 
 JUIZES_PADRAO: tuple[Juiz, ...] = (
-    Juiz("gemini", "google", os.environ.get("LLMBIAS_JUIZ_GEMINI",
-                                            "gemini-3.1-pro-preview")),
-    Juiz("opus", "anthropic", os.environ.get("LLMBIAS_JUIZ_OPUS",
-                                             "claude-opus-5")),
-    Juiz("gpt", "openai", os.environ.get("LLMBIAS_JUIZ_GPT",
-                                         "gpt-5.6-sol")),
+    # Painel da rodada 2 (set/2026): flash + sonnet + luna, os mesmos que o
+    # `llmbias-tse-reports` registra como tendo julgado a base. O painel antigo
+    # (gemini-3.1-pro + opus + gpt-5.6-sol) custava ~$1/conversa; este fica em
+    # torno de um quinto disso, com o mesmo desenho de 3 juízes por turno.
+    Juiz("flash", "google", os.environ.get("LLMBIAS_JUIZ_FLASH",
+                                           "gemini-3.7-flash")),
+    # Sonnet, não Opus, a partir da rodada 2 (set/2026): o painel de 3 juízes
+    # por turno custava ~$1/conversa e o Opus respondia por metade disso. A
+    # CHAVE mudou junto com o modelo de propósito — ela vai para `por_juiz` no
+    # dado, e deixá-la como "opus" rodando Sonnet gravaria um rótulo falso de
+    # qual modelo julgou.
+    Juiz("sonnet", "anthropic", os.environ.get("LLMBIAS_JUIZ_SONNET",
+                                               "claude-sonnet-5")),
+    Juiz("luna", "openai", os.environ.get("LLMBIAS_JUIZ_LUNA",
+                                          "gpt-5.6-luna")),
 )
 
 JUIZES_POR_KEY = {j.key: j for j in JUIZES_PADRAO}
