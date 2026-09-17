@@ -49,7 +49,18 @@ fi
 # ---------------------------------------------------------------------------
 touch "$XAUTH"; chmod 600 "$XAUTH"
 Xvfb ":${DISPLAY_NUM}" -screen 0 "$TELA" -nolisten tcp -auth "$XAUTH" &
-sleep 3
+# Espera a tela ACEITAR conexão, em vez de dormir um tempo fixo. Com `sleep 3`
+# o Chrome subia antes do Xvfb em máquina carregada (5 estações subindo
+# juntas) e morria com "Missing X server or $DISPLAY", deixando a estação sem
+# navegador — e o entrypoint seguia como se tivesse dado certo.
+for _ in $(seq 1 60); do
+  if xdpyinfo -display ":${DISPLAY_NUM}" >/dev/null 2>&1; then break; fi
+  sleep 0.5
+done
+if ! xdpyinfo -display ":${DISPLAY_NUM}" >/dev/null 2>&1; then
+  log "ERRO: Xvfb :${DISPLAY_NUM} não respondeu em 30s. Abortando."
+  exit 1
+fi
 log "Xvfb :${DISPLAY_NUM} (${TELA})"
 
 x11vnc -display ":${DISPLAY_NUM}" -auth "$XAUTH" -rfbport "$VNC_PORT" \
@@ -57,6 +68,13 @@ x11vnc -display ":${DISPLAY_NUM}" -auth "$XAUTH" -rfbport "$VNC_PORT" \
 sleep 1
 websockify --web=/usr/share/novnc "0.0.0.0:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}" &
 log "noVNC em :${NOVNC_PORT}"
+
+# Lock obsoleto do perfil: o Chrome grava SingletonLock com o hostname do
+# container. Como o hostname muda a cada recriação, o Chrome novo acha que o
+# perfil está em uso "em outro computador" e se recusa a abrir. Só um
+# container usa cada perfil, então remover é seguro — e sem isto toda
+# recriação de estação nasce sem navegador.
+rm -f "$PERFIL/SingletonLock" "$PERFIL/SingletonSocket" "$PERFIL/SingletonCookie"
 
 # ---------------------------------------------------------------------------
 # 3. Chrome com CDP e perfil persistente.
@@ -87,10 +105,20 @@ google-chrome \
   about:blank &
 CHROME_PID=$!
 
-for _ in $(seq 40); do
-  curl -sf "http://127.0.0.1:${CDP_PORT}/json/version" >/dev/null && break
+CDP_OK=0
+for _ in $(seq 60); do
+  if curl -sf "http://127.0.0.1:${CDP_PORT}/json/version" >/dev/null; then
+    CDP_OK=1; break
+  fi
   sleep 0.5
 done
+# Antes isto seguia em frente e logava "CDP pronto" mesmo com o Chrome morto,
+# e a estação aparecia saudável no painel sem ter navegador. Falha tem de
+# parecer falha: o container morre e o `restart: unless-stopped` re-tenta.
+if [ "$CDP_OK" != "1" ]; then
+  log "ERRO: Chrome não abriu o CDP em :${CDP_PORT} (veja o log acima). Abortando."
+  exit 1
+fi
 log "CDP pronto em :${CDP_PORT}"
 
 # Dependências do projeto (repo vem montado em /app, então instala em runtime
