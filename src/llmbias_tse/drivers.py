@@ -1044,6 +1044,13 @@ class WhatsAppMetaAI(BaseDriver):
     response_selector = ".copyable-text.selectable-text"
     busy_selectors: list[str] = []  # WhatsApp não tem botão de "parar"
     reset_command = "/reset-all-ais"
+    # Balões TRANSITÓRIOS da UI: têm `data-id` próprio e NÃO têm
+    # `data-pre-plain-text`, então são indistinguíveis de uma resposta pelo
+    # filtro de "mensagem recebida". Se capturados, viram resposta falsa
+    # (gravada com ok=True, 8 chars) — 21% dos turnos da coleta de ago/2026
+    # até isto ser corrigido. Ignorá-los faz o laço CONTINUAR esperando.
+    _placeholders = {"Thinking", "Typing…", "Typing...",
+                     "Digitando…", "Digitando..."}
 
     def open_new_chat(self, page) -> None:
         """No WhatsApp não há "chat novo": garante o chat ativo (Meta AI aberto
@@ -1057,9 +1064,20 @@ class WhatsAppMetaAI(BaseDriver):
         self.reset(page)
 
     def _send_raw(self, page, text: str) -> None:
+        """Envia `text` como UMA mensagem.
+
+        `keyboard.type` digita "\n" como Enter, e no WhatsApp Enter ENVIA: um
+        prompt com quebra de linha virava várias mensagens, o Meta AI respondia
+        cada uma, e a captura guardava só a resposta da última. Atingia 28,7%
+        dos turnos — justamente os de DUAS perguntas, que o instrumento cria de
+        propósito. Shift+Enter insere a quebra sem enviar."""
         box = capture.first_visible(page, self.composer_selectors)
         box.click()
-        self._digitar(page, text)
+        for i, linha in enumerate(text.split("\n")):
+            if i:
+                page.keyboard.press("Shift+Enter")
+            if linha:
+                self._digitar(page, linha)
         page.keyboard.press("Enter")
 
     def reset(self, page) -> None:
@@ -1209,7 +1227,8 @@ class WhatsAppMetaAI(BaseDriver):
             # balão recebido mais recente cujo id NÃO existia antes do envio
             newmsg = None
             for m in reversed(msgs):
-                if m["id"] and m["id"] not in before:
+                if (m["id"] and m["id"] not in before
+                        and (m["t"] or "").strip() not in self._placeholders):
                     newmsg = m
                     break
             t = newmsg["t"] if (newmsg and newmsg["t"]) else ""
