@@ -1,0 +1,91 @@
+# Entrada única da coleta: o painel na raiz e a tela de cada estação em
+# /vnc/<plataforma>/. O cloudflared aponta para cá e só para cá.
+#
+# `handle_path` remove o prefixo antes de repassar, que é o que o noVNC
+# precisa para achar os próprios assets. O websocket do VNC passa pelo
+# reverse_proxy sem configuração extra.
+#
+# PEGADINHA: o noVNC monta a URL do websocket como host + porta + `path`, sem
+# olhar o diretório da página. Sem passar `path=vnc/<plataforma>/websockify` na
+# query, ele tenta ws://host/websockify, o Caddy não casa nenhuma rota e a tela
+# fica em "Failed to connect to server" mesmo com o proxy correto. O painel já
+# monta o link certo (ver `urlTela` em dashboard/static/index.html).
+#
+# ATENÇÃO: não há autenticação aqui. Quem chega nesta porta vê contas logadas
+# e pode operar o browser delas. A autenticação é do Cloudflare Access, na
+# frente; enquanto ela não estiver no ar, publique só em localhost.
+
+:8080 {
+	handle_path /vnc/gemini.voto/* {
+		reverse_proxy coleta-gemini.voto:6080
+	}
+	handle_path /vnc/gemini.genero/* {
+		reverse_proxy coleta-gemini.genero:6080
+	}
+	handle_path /vnc/gemini.integridade/* {
+		reverse_proxy coleta-gemini.integridade:6080
+	}
+	handle_path /vnc/chatgpt.voto/* {
+		reverse_proxy coleta-chatgpt.voto:6080
+	}
+	handle_path /vnc/chatgpt.genero/* {
+		reverse_proxy coleta-chatgpt.genero:6080
+	}
+	handle_path /vnc/chatgpt.integridade/* {
+		reverse_proxy coleta-chatgpt.integridade:6080
+	}
+	handle_path /vnc/claude.voto/* {
+		reverse_proxy coleta-claude.voto:6080
+	}
+	handle_path /vnc/claude.genero/* {
+		reverse_proxy coleta-claude.genero:6080
+	}
+	handle_path /vnc/claude.integridade/* {
+		reverse_proxy coleta-claude.integridade:6080
+	}
+	handle_path /vnc/grok.voto/* {
+		reverse_proxy coleta-grok.voto:6080
+	}
+	handle_path /vnc/grok.genero/* {
+		reverse_proxy coleta-grok.genero:6080
+	}
+	handle_path /vnc/grok.integridade/* {
+		reverse_proxy coleta-grok.integridade:6080
+	}
+	handle_path /vnc/deepseek.voto/* {
+		reverse_proxy coleta-deepseek.voto:6080
+	}
+	handle_path /vnc/deepseek.genero/* {
+		reverse_proxy coleta-deepseek.genero:6080
+	}
+	handle_path /vnc/deepseek.integridade/* {
+		reverse_proxy coleta-deepseek.integridade:6080
+	}
+	handle_path /vnc/copilot.voto/* {
+		reverse_proxy coleta-copilot.voto:6080
+	}
+	handle_path /vnc/copilot.genero/* {
+		reverse_proxy coleta-copilot.genero:6080
+	}
+	handle_path /vnc/copilot.integridade/* {
+		reverse_proxy coleta-copilot.integridade:6080
+	}
+	handle_path /vnc/google_aimode.voto/* {
+		reverse_proxy coleta-google_aimode.voto:6080
+	}
+	handle_path /vnc/google_aimode.genero/* {
+		reverse_proxy coleta-google_aimode.genero:6080
+	}
+	handle_path /vnc/google_aimode.integridade/* {
+		reverse_proxy coleta-google_aimode.integridade:6080
+	}
+	handle_path /vnc/whatsapp_metaai.voto/* {
+		reverse_proxy coleta-whatsapp_metaai.voto:6080
+	}
+	handle_path /vnc/whatsapp_metaai.genero/* {
+		reverse_proxy coleta-whatsapp_metaai.genero:6080
+	}
+	handle_path /vnc/whatsapp_metaai.integridade/* {
+		reverse_proxy coleta-whatsapp_metaai.integridade:6080
+	}
+}

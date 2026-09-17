@@ -20,7 +20,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     pln = status.plano(a.run_dir)
-    p = status.progresso(a.run_dir, a.plataforma, pln)
+    p = status.progresso(a.run_dir, a.plataforma, pln, eixos=a.eixos or None)
     ctl = status.controle(a.run_dir, a.plataforma)
 
     completas = p["completas"]

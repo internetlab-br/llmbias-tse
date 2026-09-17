@@ -82,8 +82,30 @@ def plano(run_dir) -> dict:
     }
 
 
-def progresso(run_dir, plataforma: str, pln=None) -> dict:
+def partir_sessao(sessao: str) -> tuple[str, str | None]:
+    """`"gemini.voto"` -> `("gemini", "voto")`; `"gemini"` -> `("gemini", None)`.
+
+    A SESSÃO é a unidade de coleta da rodada 2: uma estação por (plataforma,
+    eixo), 8x3 = 24, cada uma com sua conta, seu perfil de Chrome e sua tela
+    remota. Separador é PONTO porque nome de plataforma tem underscore
+    (`whatsapp_metaai`, `google_aimode`) e `whatsapp_metaai_voto` não se
+    separa sem ambiguidade.
+
+    Partir por eixo, e não rodar três contas sobre o mesmo eixo, é o que evita
+    colisão: o resume indexa por `{plataforma}_{perfil}_{eixo}`, então duas
+    sessões no mesmo eixo disputariam as mesmas conversas.
+    """
+    if "." in sessao:
+        plat, eixo = sessao.rsplit(".", 1)
+        return plat, eixo
+    return sessao, None
+
+
+def progresso(run_dir, plataforma: str, pln=None, eixos=None) -> dict:
     """Conta conversas completas e incompletas de uma plataforma.
+
+    `eixos` restringe a contagem (e o alvo) aos eixos dados — é o que faz uma
+    sessão por eixo ver só o próprio trabalho.
 
     Completa = tem todos os turnos previstos e todos deram `ok`. É o mesmo
     critério do `_conv_done` do orquestrador, para o painel e a retomada
@@ -104,6 +126,8 @@ def progresso(run_dir, plataforma: str, pln=None) -> dict:
             if not rec:
                 continue
             eixo = rec.get("eixo") or p.stem.split("_")[-1]
+            if eixos and eixo not in eixos:
+                continue
             perfil = rec.get("perfil_id") or rec.get("profile_id")
             turns = rec.get("turns") or []
             turnos_ok += sum(1 for t in turns if t.get("ok"))
@@ -118,7 +142,12 @@ def progresso(run_dir, plataforma: str, pln=None) -> dict:
                 incompletas[eixo] = incompletas.get(eixo, 0) + 1
 
     total = sum(completas.values())
-    alvo = pln.get("alvo") or 0
+    if eixos:
+        # o alvo da sessão é o do(s) eixo(s) dela, não o da plataforma inteira
+        por_eixo = pln.get("alvo_por_eixo") or {}
+        alvo = sum(por_eixo.get(e, 0) for e in eixos)
+    else:
+        alvo = pln.get("alvo") or 0
 
     # Ritmo pela janela recente, não pela média desde o início: uma plataforma
     # que rodou bem ontem e travou hoje tem de aparecer como travada.
@@ -176,10 +205,14 @@ def _eventos_por_plataforma(run_dir, horas: int = 24) -> dict:
     return por_plat
 
 
-def estacao(run_dir, plataforma: str, pln: dict, evs: list) -> dict:
-    """Tudo que o painel mostra de UMA plataforma."""
-    prog = progresso(run_dir, plataforma, pln)
-    ctl = controle(run_dir, plataforma)
+def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
+    """Tudo que o painel mostra de UMA sessão (`plataforma` ou `plataforma.eixo`)."""
+    plataforma, eixo = partir_sessao(sessao)
+    eixos = [eixo] if eixo else None
+    prog = progresso(run_dir, plataforma, pln, eixos=eixos)
+    # O CONTROLE é por sessão, não por plataforma: três sessões da mesma
+    # plataforma precisam poder ser pausadas e retomadas em separado.
+    ctl = controle(run_dir, sessao)
 
     alertas = [e for e in evs if e.get("nivel") == events.ALERTA]
     ultimo_alerta = alertas[-1] if alertas else None
@@ -208,7 +241,9 @@ def estacao(run_dir, plataforma: str, pln: dict, evs: list) -> dict:
     precisa = ctl["estado"] == "precisa_humano" or alerta_pendente
 
     return {
+        "sessao": sessao,
         "plataforma": plataforma,
+        "eixo": eixo,
         "estado": ctl["estado"],
         "motivo": ctl["motivo"],
         "precisa_humano": precisa,
@@ -229,9 +264,14 @@ def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
     run_dir = Path(run_dir)
     pln = plano(run_dir)
     idx = _eventos_por_plataforma(run_dir, horas)
-    estacoes = [estacao(run_dir, p, pln, idx.get(p, [])) for p in plataformas]
+    # `plataformas` aceita sessões (`plataforma.eixo`). Os eventos são
+    # indexados por PLATAFORMA, então três sessões da mesma plataforma vêem os
+    # mesmos eventos — aceitável: o que distingue uma da outra é o progresso e
+    # o controle, e o driver não sabe em qual sessão está.
+    estacoes = [estacao(run_dir, s, pln, idx.get(partir_sessao(s)[0], []))
+                for s in plataformas]
     total = sum(e["progresso"]["completas"] for e in estacoes)
-    alvo = (pln.get("alvo") or 0) * len(plataformas)
+    alvo = sum(e["progresso"]["alvo"] for e in estacoes)
     return {
         "run_dir": str(run_dir),
         "run_id": run_dir.name,
@@ -243,7 +283,7 @@ def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
         },
         "total": {"completas": total, "alvo": alvo,
                   "pct": round(100 * total / alvo, 1) if alvo else None},
-        "precisam_humano": [e["plataforma"] for e in estacoes
+        "precisam_humano": [e["sessao"] for e in estacoes
                             if e["precisa_humano"]],
         "estacoes": estacoes,
     }

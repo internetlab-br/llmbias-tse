@@ -16,7 +16,11 @@ TURN_DELAY="${TURN_DELAY:-5}"
 CONV_DELAY="${CONV_DELAY:-12}"
 
 RUN_DIR="${DADOS}/${RUN_ID}"
-CONTROLE="${RUN_DIR}/control/${PLATAFORMA}.json"
+# SESSAO é a unidade de controle da rodada 2 (`plataforma.eixo`). Sem ela,
+# pausar uma sessão pausaria as três da mesma plataforma. Vazia = rodada 1,
+# uma estação por plataforma.
+SESSAO="${SESSAO:-$PLATAFORMA}"
+CONTROLE="${RUN_DIR}/control/${SESSAO}.json"
 export LLMBIAS_EVENTS="${RUN_DIR}/events.jsonl"
 
 mkdir -p "$(dirname "$CONTROLE")"
@@ -50,15 +54,17 @@ PY
 # progresso sem funcionar.
 completas() {
   uv run python infra/local/progresso.py "$PLATAFORMA" \
-      --run-dir "$RUN_DIR" 2>/dev/null | grep -oP '^COMPLETAS=\K[0-9]+'
+      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      | grep -oP '^COMPLETAS=\K[0-9]+'
 }
 
 alvo() {
   uv run python infra/local/progresso.py "$PLATAFORMA" \
-      --run-dir "$RUN_DIR" 2>/dev/null | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
+      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
 
-evento coleta_iniciada info "runner de $PLATAFORMA no ar"
+evento coleta_iniciada info "runner de $SESSAO no ar"
 SEM_PROGRESSO=0
 
 while true; do

@@ -1,0 +1,390 @@
+# Coleta multiplataforma num host só.
+#
+# Uma estação por plataforma, um painel e um Caddy na frente. O Caddy é a
+# única porta publicada: ele serve o painel e faz proxy das telas noVNC, então
+# o cloudflared precisa apontar para um endereço só e ninguém abre 8 portas.
+#
+# Subir tudo:            docker compose up -d
+# Subir uma estação:     docker compose up -d coleta-gemini
+# Ver a tela de uma:     http://localhost:8080/vnc/gemini/vnc.html
+#
+# As estações NÃO começam a coletar sozinhas (AUTO_INICIAR=0): estação nova
+# precisa de um humano logando na conta pela tela remota antes de qualquer
+# coisa. Depois do login, o play é no painel.
+
+name: llmbias-coleta
+
+x-estacao: &estacao
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      # Tem de casar com o dono de `data/` no host. Ver Dockerfile.
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  image: llmbias-coleta:latest
+  restart: unless-stopped
+  # Chrome escreve muito em /dev/shm; o padrão de 64 MB do Docker faz a aba
+  # morrer no meio de uma conversa longa.
+  shm_size: 2gb
+  volumes:
+    - ../../:/app                      # repo (código muda sem rebuild)
+    - ../../data:/dados                # rodadas: o painel lê o mesmo diretório
+  environment: &ambiente
+    RUN_ID: ${RUN_ID:-experimento_2026_09}
+    DADOS: /dados
+    EIXOS: ${EIXOS:-voto genero integridade}
+    LOTE: ${LOTE:-20}
+    TURN_DELAY: ${TURN_DELAY:-5}
+    CONV_DELAY: ${CONV_DELAY:-12}
+    AUTO_INICIAR: ${AUTO_INICIAR:-0}
+    # Trave o IP de saída esperado para o container abortar se alguém subir
+    # isto fora da rede de casa (ou com VPN ligada). Vazio = sem trava.
+    IP_ESPERADO: ${IP_ESPERADO:-}
+    # Só para a variante em nuvem: SOCKS de um exit node residencial.
+    PROXY_SOCKS: ${PROXY_SOCKS:-}
+
+services:
+  coleta-gemini.voto:
+    <<: *estacao
+    container_name: coleta-gemini.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: gemini
+      EIXOS: voto
+      SESSAO: gemini.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini.voto:/perfil
+
+  coleta-gemini.genero:
+    <<: *estacao
+    container_name: coleta-gemini.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: gemini
+      EIXOS: genero
+      SESSAO: gemini.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini.genero:/perfil
+
+  coleta-gemini.integridade:
+    <<: *estacao
+    container_name: coleta-gemini.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: gemini
+      EIXOS: integridade
+      SESSAO: gemini.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini.integridade:/perfil
+
+  coleta-chatgpt.voto:
+    <<: *estacao
+    container_name: coleta-chatgpt.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: chatgpt
+      EIXOS: voto
+      SESSAO: chatgpt.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt.voto:/perfil
+
+  coleta-chatgpt.genero:
+    <<: *estacao
+    container_name: coleta-chatgpt.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: chatgpt
+      EIXOS: genero
+      SESSAO: chatgpt.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt.genero:/perfil
+
+  coleta-chatgpt.integridade:
+    <<: *estacao
+    container_name: coleta-chatgpt.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: chatgpt
+      EIXOS: integridade
+      SESSAO: chatgpt.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt.integridade:/perfil
+
+  coleta-claude.voto:
+    <<: *estacao
+    container_name: coleta-claude.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: claude
+      EIXOS: voto
+      SESSAO: claude.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude.voto:/perfil
+
+  coleta-claude.genero:
+    <<: *estacao
+    container_name: coleta-claude.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: claude
+      EIXOS: genero
+      SESSAO: claude.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude.genero:/perfil
+
+  coleta-claude.integridade:
+    <<: *estacao
+    container_name: coleta-claude.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: claude
+      EIXOS: integridade
+      SESSAO: claude.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude.integridade:/perfil
+
+  coleta-grok.voto:
+    <<: *estacao
+    container_name: coleta-grok.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: grok
+      EIXOS: voto
+      SESSAO: grok.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok.voto:/perfil
+
+  coleta-grok.genero:
+    <<: *estacao
+    container_name: coleta-grok.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: grok
+      EIXOS: genero
+      SESSAO: grok.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok.genero:/perfil
+
+  coleta-grok.integridade:
+    <<: *estacao
+    container_name: coleta-grok.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: grok
+      EIXOS: integridade
+      SESSAO: grok.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok.integridade:/perfil
+
+  coleta-deepseek.voto:
+    <<: *estacao
+    container_name: coleta-deepseek.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: deepseek
+      EIXOS: voto
+      SESSAO: deepseek.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek.voto:/perfil
+
+  coleta-deepseek.genero:
+    <<: *estacao
+    container_name: coleta-deepseek.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: deepseek
+      EIXOS: genero
+      SESSAO: deepseek.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek.genero:/perfil
+
+  coleta-deepseek.integridade:
+    <<: *estacao
+    container_name: coleta-deepseek.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: deepseek
+      EIXOS: integridade
+      SESSAO: deepseek.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek.integridade:/perfil
+
+  coleta-copilot.voto:
+    <<: *estacao
+    container_name: coleta-copilot.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: copilot
+      EIXOS: voto
+      SESSAO: copilot.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot.voto:/perfil
+
+  coleta-copilot.genero:
+    <<: *estacao
+    container_name: coleta-copilot.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: copilot
+      EIXOS: genero
+      SESSAO: copilot.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot.genero:/perfil
+
+  coleta-copilot.integridade:
+    <<: *estacao
+    container_name: coleta-copilot.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: copilot
+      EIXOS: integridade
+      SESSAO: copilot.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot.integridade:/perfil
+
+  coleta-google_aimode.voto:
+    <<: *estacao
+    container_name: coleta-google_aimode.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: google_aimode
+      EIXOS: voto
+      SESSAO: google_aimode.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode.voto:/perfil
+
+  coleta-google_aimode.genero:
+    <<: *estacao
+    container_name: coleta-google_aimode.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: google_aimode
+      EIXOS: genero
+      SESSAO: google_aimode.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode.genero:/perfil
+
+  coleta-google_aimode.integridade:
+    <<: *estacao
+    container_name: coleta-google_aimode.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: google_aimode
+      EIXOS: integridade
+      SESSAO: google_aimode.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode.integridade:/perfil
+
+  coleta-whatsapp_metaai.voto:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai.voto
+    environment:
+      <<: *ambiente
+      PLATAFORMA: whatsapp_metaai
+      EIXOS: voto
+      SESSAO: whatsapp_metaai.voto
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai.voto:/perfil
+
+  coleta-whatsapp_metaai.genero:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai.genero
+    environment:
+      <<: *ambiente
+      PLATAFORMA: whatsapp_metaai
+      EIXOS: genero
+      SESSAO: whatsapp_metaai.genero
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai.genero:/perfil
+
+  coleta-whatsapp_metaai.integridade:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai.integridade
+    environment:
+      <<: *ambiente
+      PLATAFORMA: whatsapp_metaai
+      EIXOS: integridade
+      SESSAO: whatsapp_metaai.integridade
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai.integridade:/perfil
+
+  painel:
+    image: llmbias-coleta:latest
+    container_name: coleta-painel
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-lc"]
+    # Lista com um item só, não string: `command:` em string é quebrado em
+    # palavras pelo Compose, e o `bash -lc` receberia só "uv" como script.
+    command:
+      - |
+        uv sync --extra painel
+        exec uv run uvicorn infra.local.dashboard.app:app --host 0.0.0.0 --port 8000
+    working_dir: /app
+    environment:
+      RUN_DIR: /dados/${RUN_ID:-experimento_2026_09}
+      SESSOES: ${SESSOES:-gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai}
+      UV_CACHE_DIR: /tmp/uv-cache
+      UV_LINK_MODE: copy
+      UV_PROJECT_ENVIRONMENT: /home/coleta/venv
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: coleta-caddy
+    restart: unless-stopped
+    depends_on: [painel]
+    ports:
+      - "${PORTA:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro

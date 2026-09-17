@@ -25,7 +25,14 @@ from fastapi.staticfiles import StaticFiles
 from llmbias_tse import events, status
 
 RUN_DIR = Path(os.environ.get("RUN_DIR", "data/experimento_2026_09"))
-PLATAFORMAS = [p for p in os.environ.get(
+# SESSOES é a lista da rodada 2: uma entrada por (plataforma, eixo), no
+# formato `plataforma.eixo` (ex.: `whatsapp_metaai.voto`). Aceita também o
+# nome da plataforma sozinho, que é a forma da rodada 1 — uma estação por
+# plataforma rodando os três eixos em série.
+SESSOES = [s for s in os.environ.get(
+    "SESSOES",
+    os.environ.get("PLATAFORMAS", "")).split() if s]
+PLATAFORMAS = SESSOES or [p for p in os.environ.get(
     "PLATAFORMAS",
     "gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai",
 ).split() if p]
@@ -48,7 +55,9 @@ def api_eventos(plataforma: str | None = None, nivel: str | None = None,
     return {"eventos": evs[-limite:], "total": len(evs)}
 
 
-@app.post("/api/estacao/{plataforma}/{acao}")
+# `{plataforma}` aceita a SESSÃO (`plataforma.eixo`): o controle é por sessão,
+# senão pausar o WhatsApp pararia as três de uma vez.
+@app.post("/api/estacao/{plataforma:path}/{acao}")
 def api_acao(plataforma: str, acao: str, motivo: str | None = None):
     """Ações do painel. Todas são idempotentes e se resumem a escrever o
     estado desejado; o runner converge para ele no início do próximo lote.
