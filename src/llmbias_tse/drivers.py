@@ -764,7 +764,18 @@ class GrokMomentary(Grok):
     conversa. Se não confirmar, LEVANTA erro (não roda em modo normal)."""
 
     name = "grok_momentary"
-    _switch_to_private = "a[aria-label='Switch to Private Chat']"
+    # O aria-label vem no IDIOMA DA CONTA. Com a conta em português é
+    # "Mudar para bate-papo privado", e casar só o inglês fazia o driver
+    # ABORTAR toda conversa — certo para não vazar ao histórico, mas a
+    # plataforma ficava sem coletar (0/3 no smoke de 16/09).
+    _switch_to_private = (
+        "a[aria-label='Switch to Private Chat'], "
+        "a[aria-label='Mudar para bate-papo privado']"
+    )
+    _switch_to_default = (
+        "[aria-label='Switch to Default Chat'], "
+        "[aria-label='Mudar para bate-papo padrão']"
+    )
     _private_needles = [
         "won't appear in your history",
         "will not be used to train",
@@ -775,7 +786,7 @@ class GrokMomentary(Grok):
     def _momentary_active(self, page) -> bool:
         # Indicador positivo: badge "Switch to Default Chat" OU banner privado.
         try:
-            if page.locator("[aria-label='Switch to Default Chat']").count() > 0:
+            if page.locator(self._switch_to_default).count() > 0:
                 return True
         except Exception:
             pass
