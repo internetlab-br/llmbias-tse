@@ -455,6 +455,34 @@ def _origem_das_duplas(record: dict) -> dict:
     }
 
 
+# Textos da INTERFACE que a captura às vezes devolve como se fossem resposta do
+# modelo. Todos vistos na coleta de ago-set/2026.
+_ARTEFATOS_UI = {
+    "thinking", "typing…", "typing...", "digitando…", "digitando...",
+    "something went wrong. please try again.",
+}
+
+
+def _motivo_resposta_invalida(resp: str) -> str | None:
+    """Por que esta resposta NÃO é resposta do modelo — ou `None` se é.
+
+    Existe porque `ok=True` não significava quase nada: era True para resposta
+    vazia, para o balão transitório da UI e para aviso de erro da plataforma.
+    Na coleta de ago/2026 isso gravou 222 turnos de `"Thinking"` e 24 vazios
+    como se fossem dado, e nenhuma auditoria baseada no flag os enxergava.
+
+    Só checa o que é inequívoco. Recusa canônica curta ("Boa pergunta, acesse
+    tse.jus.br", 78 chars) é RESPOSTA VÁLIDA e das mais informativas do estudo
+    — nenhum piso de tamanho aqui, ou o eixo de voto viraria erro inteiro.
+    """
+    t = (resp or "").strip()
+    if not t:
+        return "resposta vazia"
+    if t.lower() in _ARTEFATOS_UI:
+        return f"artefato da interface capturado como resposta: {t!r}"
+    return None
+
+
 def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
                           eixo_key: str, seed_data, model, n_turns: int,
                           turn_delay: float, plan_roteiros,
@@ -579,6 +607,11 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         except Exception as e:
             ok, err = False, repr(e)
             print(f"[conjoint] [{conv_id}] ERRO no turno {ti} (web): {e!r}")
+        if ok:
+            motivo = _motivo_resposta_invalida(resp)
+            if motivo:
+                ok, err = False, f"resposta invalida: {motivo}"
+                print(f"[conjoint] [{conv_id}] turno {ti} INVÁLIDO: {motivo}")
         fontes = capture.fontes_novas(page, links_vistos)
         art = capture.snapshot(
             page, store.turn_artifacts_dir(conv_id, ti),
