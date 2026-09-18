@@ -334,6 +334,54 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     }
 
 
+def nucleo_pareado(run_dir, plataformas: list, eixos=None) -> dict:
+    """Perfis COMPLETOS em TODAS as plataformas, por eixo.
+
+    É o número que governa a comparação entre plataformas: um perfil só entra
+    na comparação se as oito o coletaram. Cada estação percorre sua fatia em
+    ordem de id, então o conjunto completo de uma plataforma é um PREFIXO da
+    mesma lista — e a interseção sai naturalmente. O que abre buraco no
+    prefixo é conversa que falhou e ainda não foi refeita, e é exatamente isso
+    que este número expõe: a plataforma mais lenta define o N comparável, e
+    uma plataforma adiantada não compensa outra atrasada.
+    """
+    run_dir = Path(run_dir)
+    pln = plano(run_dir)
+    plats = sorted({partir_sessao(s)[0] for s in plataformas})
+    eixos = eixos or (pln.get("eixos") or [])
+    por_plat_eixo: dict[tuple[str, str], set] = {}
+    conv_dir = run_dir / "conversations"
+    if conv_dir.exists():
+        esperados = pln.get("turnos_esperados") or {}
+        for f in conv_dir.glob("*.json"):
+            rec = _ler_json(f)
+            if not rec:
+                continue
+            plat, eixo = rec.get("platform"), rec.get("eixo")
+            perfil = (rec.get("perfil_id") or rec.get("profile_id")
+                      or (rec.get("profile") or {}).get("id"))
+            if not (plat and eixo and perfil):
+                continue
+            turns = rec.get("turns") or []
+            alvo = (esperados.get(f"{perfil}_{eixo}")
+                    or TURNOS_PADRAO.get(eixo, 10))
+            if len(turns) == alvo and all(t.get("ok") for t in turns):
+                por_plat_eixo.setdefault((plat, eixo), set()).add(perfil)
+    out = {}
+    for e in eixos:
+        conjuntos = [por_plat_eixo.get((p, e), set()) for p in plats]
+        comum = set.intersection(*conjuntos) if conjuntos else set()
+        out[e] = {
+            "n": len(comum),
+            "por_plataforma": {p: len(por_plat_eixo.get((p, e), set()))
+                               for p in plats},
+            "gargalo": min(
+                ((len(por_plat_eixo.get((p, e), set())), p) for p in plats),
+                default=(0, None))[1],
+        }
+    return {"plataformas": plats, "por_eixo": out}
+
+
 def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
     run_dir = Path(run_dir)
     pln = plano(run_dir)
@@ -357,6 +405,7 @@ def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
         },
         "total": {"completas": total, "alvo": alvo,
                   "pct": round(100 * total / alvo, 1) if alvo else None},
+        "nucleo_pareado": nucleo_pareado(run_dir, plataformas),
         "precisam_humano": [e["sessao"] for e in estacoes
                             if e["precisa_humano"]],
         "estacoes": estacoes,

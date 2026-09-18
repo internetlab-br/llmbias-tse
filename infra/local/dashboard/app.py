@@ -46,6 +46,17 @@ def api_status(horas: int = 24):
     return status.resumo(RUN_DIR, PLATAFORMAS, horas=horas)
 
 
+@app.get("/api/nucleo")
+def api_nucleo():
+    """Perfis completos em TODAS as plataformas, por eixo.
+
+    É o N que governa a comparação: um perfil só entra se as oito o
+    coletaram, então a plataforma mais lenta define o número e uma adiantada
+    não compensa outra atrasada. Olhar só o progresso por sessão esconde isso.
+    """
+    return status.nucleo_pareado(RUN_DIR, PLATAFORMAS)
+
+
 @app.get("/api/eventos")
 def api_eventos(plataforma: str | None = None, nivel: str | None = None,
                 limite: int = 200):
