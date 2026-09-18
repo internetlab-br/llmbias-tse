@@ -65,7 +65,8 @@ PLATFORM_DRIVERS: dict[str, tuple[str, str]] = {
     "grok": ("grok_momentary", "privada"),
     "claude": ("claude_momentary", "incognito"),
     "deepseek": ("deepseek", "chat_novo"),
-    # Copilot (Microsoft, conta pessoal): chat temporário (/chats/temporary).
+    # Copilot (Microsoft, conta pessoal): chat temporário por toggle, em
+    # copilot.com (a UI mudou em set/2026; ver o driver).
     "copilot": ("copilot_momentary", "temporaria"),
     # Google AI Mode (udm=50): sem incognito; isolamento por navegação fresca
     # a cada conversa (thread nova). Fora do default: `--platforms google_aimode`.
@@ -518,6 +519,10 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         "conta": os.environ.get("LLMBIAS_CONTA") or None,
         "sessao": os.environ.get("SESSAO") or None,
         "mode": mode,
+        # Rótulo do modelo/modo que a UI exibia nesta conversa. Preenchido
+        # depois de abrir o chat isolado (ver adiante) — antes disso a página
+        # ainda não montou o seletor.
+        "modelo_exibido": None,
         "model_user_agent": model,
         "profile": asdict(profile),
         "eixo": eixo_key,
@@ -577,6 +582,11 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         record["finished_at"] = _now_iso()
         store.save_conversation(record)
         return record
+
+    record["modelo_exibido"] = driver.rotulo_modelo(page)
+    if record["modelo_exibido"]:
+        print(f"[conjoint] {conv_id}: modelo exibido = "
+              f"{record['modelo_exibido']!r}")
 
     ua = UserAgent(profile, eixo, seed_data, instrumento=inst,
                    roteiro=roteiro, n_turns=n_turns, model=model,
@@ -985,6 +995,13 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "run_id": rec["run_id"],
             "platform": rec["platform"],
             "mode": rec["mode"],
+            # `conta`/`sessao` viviam só no registro da conversa e não
+            # chegavam à tabela de análise — e conta foi o fator que mais
+            # explicou diferença de comportamento na rodada 1. `modelo_exibido`
+            # é o rótulo que a UI mostrava (ver `BaseDriver.rotulo_modelo`).
+            "conta": rec.get("conta"),
+            "sessao": rec.get("sessao"),
+            "modelo_exibido": rec.get("modelo_exibido"),
             "eixo": rec["eixo"],
             "tema": rec["tema"],
             "instrumento": rec.get("instrumento"),
