@@ -140,7 +140,17 @@ uv sync --frozen 2>/dev/null || uv sync || log "AVISO: uv sync falhou"
 # `uv sync` em runtime: corrigir o runner não deveria exigir rebuild.
 RODA=/usr/local/bin/roda.sh
 [ -x /app/infra/local/roda.sh ] && RODA=/app/infra/local/roda.sh
-log "subindo o runner ($RODA); ele espera o play do painel se estiver parado"
-"$RODA" &
+# Roda uma CÓPIA, nunca o arquivo do repositório. O bash lê o script do disco
+# por offset de byte enquanto executa, então reescrever o arquivo por baixo de
+# um processo em andamento corrompe o parse e o shell morre calado. Foi o que
+# aconteceu em 18/09/2026: uma correção no `roda.sh` derrubou o runner de 14
+# das 16 estações, cada uma no meio de um lote, e o único sinal foi o painel
+# dizendo "runner fora do ar" — que eu levei um tempo para acreditar.
+# Caminho ÚNICO por execução. Um caminho fixo só empurra o problema: copiar
+# por cima de uma cópia que já está rodando corrompe o parse do mesmo jeito.
+ATIVO="/tmp/roda-ativo.$(date +%s).$$.sh"
+cp "$RODA" "$ATIVO" && chmod +x "$ATIVO"
+log "subindo o runner (cópia de $RODA); espera o play do painel se estiver parado"
+"$ATIVO" &
 
 wait "$CHROME_PID"

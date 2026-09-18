@@ -215,6 +215,24 @@ def main() -> int:
     check("nenhuma resposta fora do alfabeto latino", not fora_alf,
           str(fora_alf[:8]))
 
+    # Alfabeto latino não garante português. O Meta AI respondeu "Thanks for
+    # asking. For voting information, please go to tse.jus.br" a uma pergunta
+    # em português (18/09/2026) — inglês passa batido pela checagem de
+    # alfabeto. Exige uma marca do idioma em resposta com mais de 60 chars;
+    # abaixo disso não há texto suficiente para afirmar nada.
+    # Palavras funcionais do português que NÃO são palavra do inglês (por isso
+    # ficam fora "as", "no", "os", "is"). Exige DUAS distintas: uma sozinha
+    # pode ser nome próprio ou sigla num texto em outro idioma.
+    PT = re.compile(
+        r"\b(de|da|do|das|dos|que|n[ãa]o|para|por|com|uma?|em|n[oa]|pel[oa]|"
+        r"voc[êe]|s[ãa]o|est[áa]|[eé]|mais|como|sobre|tamb[ée]m|ser|foi)\b",
+        re.I)
+    sem_pt = [(d["conversation_id"], t["turn"], (t["response"] or "")[:60])
+              for d in boas for t in d["turns"]
+              if len(t["response"] or "") > 60
+              and len({m.lower() for m in PT.findall(t["response"])}) < 2]
+    check("respostas em português", not sem_pt, str(sem_pt[:6]))
+
     # --- ESTÍMULO DO VOTO ------------------------------------------------
     sem = [d["conversation_id"] for d in boas
            if d["eixo"] == "voto" and not d.get("corrida")]

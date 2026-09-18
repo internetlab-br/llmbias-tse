@@ -26,6 +26,21 @@ export LLMBIAS_EVENTS="${RUN_DIR}/events.jsonl"
 mkdir -p "$(dirname "$CONTROLE")"
 [ -f "$CONTROLE" ] || echo '{"estado": "rodando"}' > "$CONTROLE"
 
+# UM runner por sessão, e só um. Duas instâncias na mesma estação dirigem o
+# MESMO Chrome: as conversas se intercalam na mesma aba e a captura mistura
+# turnos de duas conversas — dado corrompido sem nenhum erro. Aconteceu em
+# 18/09/2026 nas duas estações de WhatsApp, onde o chat do Meta AI é único e
+# compartilhado, que é o pior caso possível.
+#
+# `flock` não solta o arquivo enquanto o processo vive, e o solta sozinho se
+# ele morrer — não fica trava órfã para alguém limpar à mão.
+TRAVA="/tmp/roda.${SESSAO}.lock"
+exec 9>"$TRAVA"
+if ! flock -n 9; then
+  echo "[roda] já existe runner para $SESSAO (trava $TRAVA); saindo" >&2
+  exit 0
+fi
+
 estado() { jq -r '.estado // "rodando"' "$CONTROLE" 2>/dev/null || echo rodando; }
 motivo_atual() { jq -r '.motivo // ""' "$CONTROLE" 2>/dev/null || echo ""; }
 marcar() {  # marcar <estado> [motivo]
@@ -49,6 +64,19 @@ marcar() {  # marcar <estado> [motivo]
 }
 bater() {  # renova o batimento sem mexer no estado nem no motivo
   marcar "$(estado)" "$(motivo_atual)"
+}
+dormir_batendo() {  # dormir_batendo <segundos>
+  # Espera longa TEM de bater no meio. A espera de 15 min depois de um lote
+  # sem progresso é decisão do runner, não morte dele — mas sem batimento ela
+  # é indistinguível de morte, e o painel marcou 12 estações vivas como "fora
+  # do ar" (18/09/2026). Um painel que acusa o que está funcionando deixa de
+  # ser lido, e aí não acusa o que quebrou.
+  local resta="$1"
+  while [ "$resta" -gt 0 ]; do
+    bater
+    if [ "$resta" -gt 60 ]; then sleep 60; resta=$((resta - 60));
+    else sleep "$resta"; resta=0; fi
+  done
 }
 evento() {  # evento <tipo> <nivel> <mensagem>
   # SESSAO, não PLATAFORMA: o painel agrupa os eventos por este campo e há
@@ -101,6 +129,7 @@ while true; do
     parado)         bater; sleep 15; continue ;;
   esac
 
+  bater  # batimento fresco antes de um lote que pode levar horas
   ANTES="$(completas)"; ANTES="${ANTES:-0}"
   uv run python -m llmbias_tse conjoint \
       --run-id "$RUN_ID" --platforms "$PLATAFORMA" --eixos $EIXOS \
@@ -133,9 +162,9 @@ while true; do
       continue
     fi
     evento envio_falhou aviso "lote sem progresso ($SEM_PROGRESSO/3)"
-    sleep 900
+    dormir_batendo 900
   else
     SEM_PROGRESSO=0
-    sleep 30
+    dormir_batendo 30
   fi
 done
