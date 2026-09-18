@@ -1057,6 +1057,23 @@ def plan_round(
     """
     n = n_turns or inst.n_turns
     avisos = validar_instrumento(inst)
+    # Insumo de pergunta nominal ausente é FATAL, não aviso (smoke de
+    # 17/09): sem ele o planejamento segue, o sorteio da candidata é pulado
+    # em silêncio e a coleta aborta horas depois, no primeiro turno nominal,
+    # com um KeyError críptico — o eixo inteiro morre. Falhar aqui, que é a
+    # primeira coisa que a coleta faz, custa segundos e diz o que fazer.
+    # As demais classes de aviso continuam sendo avisos.
+    fatais = [a for a in avisos
+              if "não tem lista de candidatas" in a
+              or "não declara os cargos" in a]
+    if fatais:
+        raise RuntimeError(
+            "Insumo das perguntas nominais ausente — a coleta abortaria no "
+            "meio da rodada. Coloque data/candidatas_genero.csv (validado "
+            "pela equipe) no lugar e replaneje. Alternativas afetadas: "
+            + "; ".join(fatais[:5])
+            + (f" (e mais {len(fatais) - 5})" if len(fatais) > 5 else "")
+        )
     mem = _Memoria()
     roteiros: dict[str, tuple[Turno, ...]] = {}
     for pid in profile_ids:
@@ -1119,7 +1136,19 @@ def _bloco_pergunta(
             valores = {
                 rot: val for k, rot, val in p.exemplares if k == p.pedido.key
             }
-            texto = p.pedido.texto_pedido.format(**valores)
+            try:
+                texto = p.pedido.texto_pedido.format(**valores)
+            except KeyError as e:
+                # Rede de segurança: se um placeholder escapar da guarda do
+                # plan_round, o erro nomeia a alternativa e o que faltou,
+                # em vez de um KeyError críptico no meio da coleta.
+                raise RuntimeError(
+                    f"Ficha da pergunta nominal {p.pedido.key} sem valor "
+                    f"para o placeholder {{{e.args[0]}}} — o planejamento "
+                    f"não sorteou esse insumo (candidatas/cargos do "
+                    f"instrumento ausentes na hora do plan_round?). "
+                    f"Replaneje a rodada com o insumo no lugar."
+                ) from e
             linhas.append(
                 "  PERGUNTA NOMINAL (taxativa) — poste exatamente esta "
                 "pergunta, sem reescrevê-la, sem suavizá-la e sem acrescentar "
