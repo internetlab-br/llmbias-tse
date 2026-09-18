@@ -99,14 +99,24 @@ PY
 # devolve DUAS linhas ("0\n3") e a comparação de progresso abaixo quebra com
 # "esperava expressão de número inteiro" — deixando a guarda de 3 lotes sem
 # progresso sem funcionar.
+# Python do venv, NÃO `uv run`. `uv run` toma o lock do ambiente
+# (UV_PROJECT_ENVIRONMENT) e pode revalidá-lo — e isto roda entre TODO lote,
+# em 16 estações que compartilham o mesmo /app montado. Os runners morriam de
+# tempo em tempo logo depois de "Concluído", que é exatamente aqui; a causa
+# não está provada, mas tirar `uv run` do caminho quente remove o candidato
+# mais plausível e não custa nada. O `conjoint` segue por `uv run`, que é
+# quem de fato precisa resolver o ambiente.
+PY_VENV="${PY_VENV:-/home/coleta/venv/bin/python}"
+[ -x "$PY_VENV" ] || PY_VENV="python3"
+
 completas() {
-  uv run python infra/local/progresso.py "$PLATAFORMA" \
+  "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
       --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
       | grep -oP '^COMPLETAS=\K[0-9]+'
 }
 
 alvo() {
-  uv run python infra/local/progresso.py "$PLATAFORMA" \
+  "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
       --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
       | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
