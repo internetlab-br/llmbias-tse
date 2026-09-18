@@ -37,7 +37,7 @@ from pathlib import Path
 import pandas as pd
 from patchright.sync_api import sync_playwright
 
-from . import browser, capture, corridas, events, llm
+from . import browser, capture, corridas, events, llm, rede
 from .axes import EIXOS
 from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
@@ -59,6 +59,10 @@ from .user_agent import UserAgent
 #             memória entre conversas (sem "reference chat history"); a única
 #             diferença é que a conversa fica salva no histórico (não afeta a
 #             independência entre conversas). Ver DEEPSEEK_SEM_MOMENTANEA.
+# IP de saída da coleta, medido uma vez por processo em `generate_conversations`
+# e gravado em cada conversa. Ver `rede.ip_saida`.
+_rede: dict | None = None
+
 PLATFORM_DRIVERS: dict[str, tuple[str, str]] = {
     "gemini": ("gemini_momentary", "momentanea"),
     "chatgpt": ("chatgpt_momentary", "temporaria"),
@@ -533,6 +537,14 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         # em 0% de outra). Vazio quando a plataforma não exige login
         # (google_aimode) ou quando a estação não declarou.
         "conta": os.environ.get("LLMBIAS_CONTA") or None,
+        # De qual IP esta conversa saiu. Ver `rede.ip_saida`: as plataformas
+        # tratam IP residencial e de datacenter de forma diferente (CAPTCHA,
+        # verificação de segurança, limite de uso), então o resultado só é
+        # interpretável sabendo de onde se falou. Gravado por conversa, e não
+        # só uma vez por rodada, para que uma troca de rota no meio da coleta
+        # apareça exatamente nas conversas afetadas.
+        "ip_saida": (_rede or {}).get("ip"),
+        "ip_saida_org": (_rede or {}).get("org"),
         "sessao": os.environ.get("SESSAO") or None,
         "mode": mode,
         # Rótulo do modelo/modo que a UI exibia nesta conversa. Preenchido
@@ -744,6 +756,19 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
         store.dir,
         plataforma=(os.environ.get("SESSAO")
                     or (platforms[0] if len(platforms) == 1 else None)))
+    global _rede
+    _rede = rede.ip_saida()
+    if _rede:
+        print(f"[conjoint] saindo por {_rede['ip']} "
+              f"({_rede.get('org') or 'organização não identificada'})")
+        events.emit("ip_saida", nivel=events.INFO, **_rede)
+    else:
+        # Não impede a coleta, mas não pode ficar invisível: sem o IP, a
+        # rodada perde a informação que distingue "o modelo se comportou
+        # assim" de "o modelo se comportou assim com quem parece robô".
+        print("[conjoint] AVISO: não foi possível medir o IP de saída "
+              "(defina LLMBIAS_IP_SAIDA para declarar)", flush=True)
+        events.aviso("ip_saida_indisponivel", "não foi possível medir o IP")
     events.emit(events.COLETA_INICIADA, plataformas=list(platforms),
                 eixos=list(eixos), a_fazer=len(todo), planejadas=len(planned))
 
@@ -1026,6 +1051,8 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             # é o rótulo que a UI mostrava (ver `BaseDriver.rotulo_modelo`).
             "conta": rec.get("conta"),
             "sessao": rec.get("sessao"),
+            "ip_saida": rec.get("ip_saida"),
+            "ip_saida_org": rec.get("ip_saida_org"),
             "modelo_exibido": rec.get("modelo_exibido"),
             # Turnos cuja resposta saiu em outro sistema de escrita. Nasceu do
             # DeepSeek respondendo em chinês a pergunta em português.

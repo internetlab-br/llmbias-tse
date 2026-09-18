@@ -433,12 +433,22 @@ def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
     run_dir = Path(run_dir)
     pln = plano(run_dir)
     idx = _eventos_por_plataforma(run_dir, horas)
-    # `plataformas` aceita sessões (`plataforma.eixo`). Os eventos são
-    # indexados por PLATAFORMA, então três sessões da mesma plataforma vêem os
-    # mesmos eventos — aceitável: o que distingue uma da outra é o progresso e
-    # o controle, e o driver não sabe em qual sessão está.
-    estacoes = [estacao(run_dir, s, pln, idx.get(partir_sessao(s)[0], []))
-                for s in plataformas]
+    # Os eventos passaram a ser indexados por SESSÃO (`gemini.c1`), e não mais
+    # pelo nome nu da plataforma. Procurar pela sessão PRIMEIRO é o que faz o
+    # cartão mostrar o que aquela estação está fazendo; cair na plataforma é
+    # para a rodada 1, onde havia uma estação por plataforma, e para os
+    # eventos gravados antes da mudança.
+    #
+    # Sem esta ordem, 11 das 16 estações apareceram "runner fora do ar"
+    # (18/09/2026) COM runner e coleta vivos emitindo evento a cada minuto: a
+    # busca casava no balde antigo, cujo último evento era de 40 min antes.
+    # Falso alarme custa tanto quanto alarme perdido — o painel deixa de ser
+    # lido, e aí não avisa o que quebrou de verdade.
+    estacoes = [
+        estacao(run_dir, s, pln,
+                idx.get(s) or idx.get(partir_sessao(s)[0], []))
+        for s in plataformas
+    ]
     total = sum(e["progresso"]["completas"] for e in estacoes)
     alvo = sum(e["progresso"]["alvo"] for e in estacoes)
     return {
