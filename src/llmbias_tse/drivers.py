@@ -1239,6 +1239,15 @@ class Copilot(BaseDriver):
       mesmo instante em que o texto para de crescer e a barra de ações
       ("Copiar Resposta") aparece.
 
+    Sobre o PLANO: o botão de upsell (`[data-testid='upgrade-copilot']`, o
+    "Atualizar" no rodapé) **não** indica plano gratuito — ele fica ali também
+    na conta paga (confirmado pelo Julio, 18/09/2026, depois de eu concluir o
+    contrário e errar). O único sinal confiável de limite é a própria
+    mensagem, que está em `capture.BLOCK_MARKERS`: "You've reached your daily
+    limit". Ela também DESABILITA o composer, e é por isso que o sintoma
+    chega como `Locator.click` estourando o prazo ("element is not enabled")
+    em vez de erro de envio.
+
     Sobre o `aria-busy`: NÃO use `[data-testid='loading-message']` como sinal
     de ocupado. Ele está presente também com a resposta pronta — é container,
     não indicador. Um sinal que nunca desliga faria a espera cair sempre no
