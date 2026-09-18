@@ -714,11 +714,17 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
         print("[conjoint] nada a gerar (todas já concluídas).")
         return
 
-    # O painel lê `data/<run>/events.jsonl`. Um container por plataforma
-    # significa um processo por plataforma, então o campo fixo `plataforma` já
-    # identifica a origem de cada linha.
-    events.configurar(store.dir,
-                      plataforma=platforms[0] if len(platforms) == 1 else None)
+    # O painel lê `data/<run>/events.jsonl` e agrupa por este campo. Ele tem
+    # de ser a SESSÃO, não a plataforma: a fase 2 roda DUAS estações por
+    # plataforma (`gemini.c1` e `gemini.c2`), e com o nome nu da plataforma os
+    # eventos das duas caem no mesmo balde — nenhuma das duas casa com o nome
+    # da sessão no painel, então todo cartão mostrava zero erro, zero rate
+    # limit e nenhum último evento. O comentário anterior ("um container por
+    # plataforma") descrevia a rodada 1.
+    events.configurar(
+        store.dir,
+        plataforma=(os.environ.get("SESSAO")
+                    or (platforms[0] if len(platforms) == 1 else None)))
     events.emit(events.COLETA_INICIADA, plataformas=list(platforms),
                 eixos=list(eixos), a_fazer=len(todo), planejadas=len(planned))
 

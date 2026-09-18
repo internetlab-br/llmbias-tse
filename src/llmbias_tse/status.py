@@ -218,6 +218,12 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None,
     }
 
 
+# Minutos de silêncio (sem batimento E sem evento) que fazem uma sessão
+# "rodando" ser tratada como sem runner. Um lote de conversas emite evento por
+# turno, então um turno leva bem menos que isto.
+_RUNNER_SILENCIO_MIN = 10
+
+
 def controle(run_dir, plataforma: str) -> dict:
     d = _ler_json(Path(run_dir) / "control" / f"{plataforma}.json") or {}
     estado = d.get("estado") or "rodando"
@@ -228,6 +234,10 @@ def controle(run_dir, plataforma: str) -> dict:
         # Eixos DECLARADOS pelo runner (ver `definir_controle`). Sem repassar
         # aqui, o alvo da sessão sai calculado com os eixos do plano inteiro.
         "eixos": d.get("eixos") or None,
+        # Batimento do runner. Escrito só por ele (o painel não o escreve, e
+        # não deve: é a prova de que existe processo, não de que alguém
+        # clicou). Ausente = runner nunca se anunciou nesta sessão.
+        "runner_visto_em": d.get("runner_visto_em"),
     }
 
 
@@ -318,7 +328,29 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     if ultimo_alerta:
         ta = _parse_ts(ultimo_alerta.get("ts")) or _agora()
         alerta_pendente = not any(m > ta for m in marcos)
-    precisa = ctl["estado"] == "precisa_humano" or alerta_pendente
+    # RODANDO SEM RUNNER. O estado do painel é um arquivo; o batimento é a
+    # prova de que existe processo lendo esse arquivo. Em 18/09 as 16 sessões
+    # apareceram "rodando" por três minutos sem nenhum runner no ar — o play
+    # escrevia num arquivo que ninguém lia — e o painel não tinha como dizer.
+    #
+    # Duas provas de vida, qualquer uma serve: o batimento do runner, ou
+    # evento recente. A segunda é necessária porque o runner só bate ENTRE
+    # lotes, e um lote leva horas; durante ele, quem prova que a coleta anda
+    # são os eventos de turno.
+    hb = _parse_ts(ctl.get("runner_visto_em"))
+    hb_min = round((_agora() - hb).total_seconds() / 60) if hb else None
+    desde_play = _parse_ts(ctl.get("em"))
+    play_min = (round((_agora() - desde_play).total_seconds() / 60)
+                if desde_play else None)
+    vivo = ((hb_min is not None and hb_min <= _RUNNER_SILENCIO_MIN)
+            or (parado_min is not None and parado_min <= _RUNNER_SILENCIO_MIN))
+    # A carência evita alarme no minuto seguinte ao play, quando ainda não há
+    # batimento nem evento por um motivo legítimo.
+    sem_runner = (ctl["estado"] == "rodando" and not vivo
+                  and (play_min is None or play_min > _RUNNER_SILENCIO_MIN))
+
+    precisa = (ctl["estado"] == "precisa_humano" or alerta_pendente
+               or sem_runner)
 
     return {
         "sessao": sessao,
@@ -337,6 +369,8 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
         "ultimo_alerta": ultimo_alerta,
         "ultimo_evento": ultimo_evento,
         "parado_ha_min": parado_min,
+        "runner_visto_ha_min": hb_min,
+        "sem_runner": sem_runner,
     }
 
 

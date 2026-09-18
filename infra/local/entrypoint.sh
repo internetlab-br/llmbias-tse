@@ -130,11 +130,17 @@ log "CDP pronto em :${CDP_PORT}"
 # e não na imagem: assim mexer no código não exige rebuild).
 uv sync --frozen 2>/dev/null || uv sync || log "AVISO: uv sync falhou"
 
-if [ "${AUTO_INICIAR:-0}" = "1" ]; then
-  log "AUTO_INICIAR=1: começando a coleta"
-  /usr/local/bin/roda.sh &
-else
-  log "pronto. Logue na conta pela tela remota e dê play no painel."
-fi
+# O runner sobe SEMPRE. Ele obedece ao arquivo de controle — fica dormindo
+# enquanto a sessão está parada/pausada e começa quando o painel manda play.
+# Antes ele só subia com AUTO_INICIAR=1, e sem ele o botão de play escrevia
+# "rodando" num arquivo que ninguém lia: o painel mostrava as 16 sessões
+# coletando com zero processo de coleta no ar.
+#
+# Prefere a cópia do repositório montado à da imagem, pelo mesmo motivo do
+# `uv sync` em runtime: corrigir o runner não deveria exigir rebuild.
+RODA=/usr/local/bin/roda.sh
+[ -x /app/infra/local/roda.sh ] && RODA=/app/infra/local/roda.sh
+log "subindo o runner ($RODA); ele espera o play do painel se estiver parado"
+"$RODA" &
 
 wait "$CHROME_PID"

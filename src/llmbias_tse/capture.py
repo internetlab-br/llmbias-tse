@@ -152,6 +152,40 @@ def first_visible(page, selectors: list[str], timeout: float = 15.0):
     )
 
 
+def focar_composer(page, selectors: list[str], timeout: float = 15.0):
+    """Põe o cursor no composer e devolve o locator usado.
+
+    Tenta CLICAR e, se o clique não passar em `timeout`, FOCA pelo DOM. O
+    clique é o caminho preferido — é o que um humano faz, e alguns composers
+    só montam o editor de verdade no primeiro clique —, mas depende de duas
+    coisas que não controlamos: a área estar livre na tela e o elemento não
+    ter sido recriado entre resolver o locator e clicar. `focus()` não depende
+    de nenhuma das duas, e o teclado escreve igual.
+
+    Motivo: em 18/09/2026 o Copilot abortou uma conversa com `Locator.click:
+    Timeout 60000ms exceeded` no `span[role=textbox]` do composer. São 60 s
+    parado e uma conversa perdida onde focar resolveria na hora — e o mesmo
+    sintoma aparece em qualquer UI que ponha um aviso sobre o composer.
+    """
+    box = first_visible(page, selectors, timeout=timeout)
+    try:
+        box.click(timeout=timeout * 1000)
+        return box
+    except Exception as e:
+        print(f"[capture] clique no composer falhou ({e!r} truncado); "
+              "focando pelo DOM", flush=True)
+    for tentativa in range(2):
+        try:
+            box = first_visible(page, selectors, timeout=timeout)
+            box.evaluate("el => el.focus()")
+            return box
+        except Exception:
+            if tentativa:
+                raise
+            time.sleep(1.0)
+    return box
+
+
 def type_text(page, selectors: list[str], text: str) -> None:
     """Foca o composer e digita o texto (funciona em textarea e contenteditable)."""
     box = first_visible(page, selectors)

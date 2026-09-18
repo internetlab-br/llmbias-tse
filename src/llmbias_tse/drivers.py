@@ -360,8 +360,7 @@ class BaseDriver:
         """
         self._aguardar_ocioso(page)
         for tentativa in range(2):
-            box = capture.first_visible(page, self.composer_selectors)
-            box.click()
+            capture.focar_composer(page, self.composer_selectors)
             try:
                 page.keyboard.press("Control+A")
                 page.keyboard.press("Delete")
@@ -1358,8 +1357,7 @@ class WhatsAppMetaAI(BaseDriver):
         cada uma, e a captura guardava só a resposta da última. Atingia 28,7%
         dos turnos — justamente os de DUAS perguntas, que o instrumento cria de
         propósito. Shift+Enter insere a quebra sem enviar."""
-        box = capture.first_visible(page, self.composer_selectors)
-        box.click()
+        capture.focar_composer(page, self.composer_selectors)
         for i, linha in enumerate(text.split("\n")):
             if i:
                 page.keyboard.press("Shift+Enter")

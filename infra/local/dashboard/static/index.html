@@ -157,6 +157,7 @@ function cartaHTML(e) {
       <span>rate limit (24h)</span><b class="${e.rate_limits_24h > 0 ? "morno" : ""}">${e.rate_limits_24h}</b>
       <span>erros (24h)</span><b class="${e.erros_24h > 0 ? "morno" : ""}">${e.erros_24h}</b>
       <span>último evento</span><b class="${classeParado}">${parado === null ? "--" : parado + " min"}</b>
+      <span>runner</span><b class="${e.sem_runner ? "ruim" : ""}">${e.sem_runner ? "FORA DO AR" : (e.runner_visto_ha_min === null || e.runner_visto_ha_min === undefined ? "--" : e.runner_visto_ha_min + " min")}</b>
     </div>
     ${motivoHTML(e)}
     <div class="acoes">
