@@ -64,4 +64,8 @@
 	handle_path /vnc/whatsapp_metaai.c2/* {
 		reverse_proxy coleta-whatsapp_metaai.c2:6080
 	}
+
+	handle {
+		reverse_proxy painel:8000
+	}
 }

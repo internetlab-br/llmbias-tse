@@ -347,6 +347,8 @@ services:
     working_dir: /app
     environment:
       RUN_DIR: /dados/${RUN_ID:-experimento_2026_09}
+      N_FATIAS: "2"
+      EIXOS: voto integridade
       SESSOES: ${SESSOES:-gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai}
       UV_CACHE_DIR: /tmp/uv-cache
       UV_LINK_MODE: copy
@@ -364,3 +366,9 @@ services:
       - "${PORTA:-8080}:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.42.0.0/16

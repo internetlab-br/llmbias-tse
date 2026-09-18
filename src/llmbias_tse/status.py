@@ -278,7 +278,13 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     if fat:
         # sessão por CONTA: roda os eixos que DECLAROU, numa fatia dos perfis
         perfis = perfis_da_fatia(_perfis_do_run(run_dir), *fat)
-        eixos_decl = ctl.get("eixos") or None
+        # Ordem de precedência: o que o runner DECLAROU > os eixos da FASE
+        # (env `EIXOS`, que o compose da fase define) > os eixos do plano.
+        # Sem o nível da fase, uma sessão que ainda não começou aparece com
+        # alvo dos três eixos do plano — 150 em vez de 100 na fase A.
+        eixos_decl = (ctl.get("eixos")
+                      or [e for e in os.environ.get("EIXOS", "").split() if e]
+                      or None)
         prog = progresso(run_dir, plataforma, pln, eixos=eixos_decl,
                          perfis=perfis)
         eixo = None

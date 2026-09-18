@@ -59,16 +59,41 @@ for s in SESSOES:
 cauda = base.split("  painel:")[1]
 painel = ("  painel:" + cauda).replace(
     "PLATAFORMAS: ${PLATAFORMAS:-", "SESSOES: ${SESSOES:-")
+# O painel precisa de N_FATIAS e EIXOS: sem N_FATIAS ele assume 3 e calcula a
+# FATIA ERRADA (1/3 em vez de 1/2), mostrando progresso de outros perfis; sem
+# EIXOS, a sessão que ainda não começou aparece com o alvo dos três eixos do
+# plano em vez dos da fase.
+painel = painel.replace(
+    "      SESSOES: ${SESSOES:-",
+    f"      N_FATIAS: \"{n}\"\n      EIXOS: {eixos}\n      SESSOES: ${{SESSOES:-")
+# Sub-rede EXPLÍCITA: a máquina de coleta tem VPN com rotas para
+# 172.16.0.0/12 e 192.168.0.0/16, que são justamente os dois pools default do
+# Docker — ele recusa alocar por cima e falha com "all predefined address
+# pools have been fully subnetted". Fixar aqui torna a subida independente do
+# estado da VPN. (A VPN é split tunnel: o egresso para a internet continua
+# saindo pelo IP residencial, que é o que as plataformas veem.)
+rede = """
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.42.0.0/16
+"""
 Path(f"compose.fase{fase}.yaml").write_text(
-    cabeca + "services:\n" + "\n\n".join(servicos) + "\n\n" + painel)
+    cabeca + "services:\n" + "\n\n".join(servicos) + "\n\n" + painel + rede)
 
 rotas = "\n".join(
     f"\thandle_path /vnc/{s}/* {{\n\t\treverse_proxy coleta-{s}:6080\n\t}}"
     for s in SESSOES)
-cad = Path("Caddyfile").read_text()
+# Substitui APENAS o bloco de rotas /vnc/, preservando o que vem depois — a
+# rota `/` do painel vem DEPOIS delas, e recortar até o último `}` do arquivo
+# a comia: o Caddy respondia 200 com corpo vazio, e o painel parecia no ar.
+cad = Path("Caddyfile.base").read_text() if Path("Caddyfile.base").exists() \
+    else Path("Caddyfile").read_text()
 ini = cad.index("\thandle_path /vnc/")
-fim = cad.rindex("\t}") + 2
-Path(f"Caddyfile.fase{fase}").write_text(cad[:ini] + rotas + cad[fim:])
+ult = cad.rindex("\thandle_path /vnc/")
+fim = cad.index("\t}", cad.index("reverse_proxy", ult)) + len("\t}\n")
+Path(f"Caddyfile.fase{fase}").write_text(cad[:ini] + rotas + "\n" + cad[fim:])
 
 Path(f"sessoes.fase{fase}.txt").write_text(
     f"SESSOES={' '.join(SESSOES)}\nN_FATIAS={n}\nEIXOS={eixos}\n")
