@@ -359,6 +359,18 @@ class BaseDriver:
         estava declarado em `busy_selectors`; só não era consultado aqui.
         """
         self._aguardar_ocioso(page)
+        # ANTES de tocar no composer: se há verificação humana na tela, nada
+        # que este código faça resolve, e a queda para `focus()` digitaria por
+        # baixo do modal — bloqueio visível virando dado vazio.
+        rot = capture.verificacao_humana(page)
+        if rot:
+            events.alerta(events.PRECISA_HUMANO,
+                          f"verificação de segurança na tela: {rot}",
+                          driver=self.name)
+            raise capture.VerificacaoHumana(
+                f"{self.name}: verificação de segurança na tela ({rot}) — "
+                "resolva pela tela remota e retome no painel"
+            )
         for tentativa in range(2):
             capture.focar_composer(page, self.composer_selectors)
             try:

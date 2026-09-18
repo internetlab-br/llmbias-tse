@@ -80,6 +80,56 @@ def texto_de_bloqueio(texto: str | None, limite: int = 400) -> str | None:
     return None
 
 
+# Modal de verificação humana (CAPTCHA). Casado pelo RÓTULO do diálogo, não
+# pelo texto da página: o texto visível é curto e genérico ("Verificação
+# obrigatória"), e procurar isso no body daria falso-positivo.
+_RE_VERIFICACAO = re.compile(
+    r"(verifica[cç][aã]o de seguran[cç]a"
+    r"|security verification"
+    r"|verify (that )?you(\'re| are)? ?human"
+    r"|confirme que (voc[eê]|tu) [eé] human"
+    r"|captcha)",
+    re.I,
+)
+
+
+class VerificacaoHumana(Exception):
+    """A plataforma interpôs verificação humana (CAPTCHA). Só uma pessoa sai
+    disso — o certo é PARAR e chamar, não tentar digitar por baixo do modal."""
+
+
+def verificacao_humana(page) -> str | None:
+    """Rótulo do modal de verificação humana, se estiver na tela, senão None.
+
+    Existe porque o sintoma, sem isto, é um `Locator.click: Timeout 60000ms
+    exceeded` no composer — indistinguível de seletor quebrado. Aconteceu no
+    Copilot em 18/09/2026: o modal "Verificação de segurança necessária"
+    interceptava o clique, a conversa morria depois de 60 s e a estação
+    seguia para a próxima, queimando o plano sem que nada dissesse o motivo.
+
+    É também o motivo para a queda para `focus()` NÃO vir antes desta
+    checagem: focar pelo DOM ignora o modal e digitaria por baixo dele, o que
+    transformaria um bloqueio visível em dado silenciosamente vazio.
+    """
+    try:
+        dlgs = page.locator("[role=dialog]")
+        for i in range(dlgs.count()):
+            d = dlgs.nth(i)
+            rot = d.get_attribute("aria-label") or ""
+            if not rot:
+                rot = (d.text_content() or "")[:200]
+            # Normaliza ANTES de casar: o rótulo do Copilot vem com espaço
+            # inquebrável ("Verificação de\xa0segurança"), e um espaço
+            # literal no padrão não casa com ele. Foi assim que o primeiro
+            # detector não detectou o próprio modal que o motivou.
+            rot = re.sub(r"\s+", " ", rot).strip()
+            if rot and _RE_VERIFICACAO.search(rot):
+                return rot[:120]
+    except Exception:
+        return None
+    return None
+
+
 class RateLimited(Exception):
     """A ferramenta bloqueou temporariamente por excesso de requisições."""
 

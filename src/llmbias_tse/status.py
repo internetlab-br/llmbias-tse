@@ -260,6 +260,13 @@ def definir_controle(run_dir, plataforma: str, estado: str,
     eixos = eixos if eixos is not None else anterior.get("eixos")
     if eixos:
         reg["eixos"] = list(eixos)
+    # PRESERVA o batimento do runner. O painel não o escreve (é prova de
+    # processo, não de clique), mas apagá-lo é pior: qualquer ação no painel
+    # fazia a estação parecer sem runner até o fim do lote em curso, que leva
+    # horas. Visto na prática em 18/09: um "resolvido" no WhatsApp zerou o
+    # campo com o runner vivo e coletando.
+    if anterior.get("runner_visto_em"):
+        reg["runner_visto_em"] = anterior["runner_visto_em"]
     # Escrita atômica: o runner lê este arquivo entre lotes e não pode pegar
     # um JSON pela metade.
     tmp = d / f".{plataforma}.json.tmp"

@@ -138,3 +138,48 @@ def test_trocar_a_data_no_meio_aborta():
                                 segundo_turno="25 de outubro de 2026")
     with pytest.raises(SystemExit, match="troca a pergunta"):
         _conferir_plano_compativel(PLANO_NOVO, ["voto"], "so_presidente", outro)
+
+
+def test_verificacao_humana_casa_o_rotulo_do_modal():
+    """O CAPTCHA tem de ser reconhecido pelo rótulo do diálogo.
+
+    Sem isto o sintoma é um timeout de clique no composer, indistinguível de
+    seletor quebrado — foi o que matou conversas do Copilot em 18/09/2026.
+    """
+    from llmbias_tse import capture
+
+    class _Loc:
+        def __init__(self, rots):
+            self._rots = rots
+
+        def count(self):
+            return len(self._rots)
+
+        def nth(self, i):
+            return _Dlg(self._rots[i])
+
+    class _Dlg:
+        def __init__(self, rot):
+            self._rot = rot
+
+        def get_attribute(self, _):
+            return self._rot
+
+        def text_content(self):
+            return ""
+
+    class _Page:
+        def __init__(self, rots):
+            self._rots = rots
+
+        def locator(self, _):
+            return _Loc(self._rots)
+
+    assert capture.verificacao_humana(
+        _Page(["Verificação de\xa0segurança necessária"])
+    ) == "Verificação de segurança necessária"
+    assert capture.verificacao_humana(_Page(["Security verification"]))
+    # Um diálogo qualquer NÃO pode ser lido como bloqueio: pausaria a coleta
+    # a cada aviso de boas-vindas.
+    assert capture.verificacao_humana(_Page(["Chat temporário"])) is None
+    assert capture.verificacao_humana(_Page([])) is None
