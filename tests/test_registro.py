@@ -156,11 +156,13 @@ def test_verificacao_humana_casa_o_rotulo_do_modal():
             return len(self._rots)
 
         def nth(self, i):
-            return _Dlg(self._rots[i])
+            rot, visivel = self._rots[i]
+            return _Dlg(rot, visivel)
 
     class _Dlg:
-        def __init__(self, rot):
+        def __init__(self, rot, visivel=True):
             self._rot = rot
+            self._visivel = visivel
 
         def get_attribute(self, _):
             return self._rot
@@ -168,9 +170,14 @@ def test_verificacao_humana_casa_o_rotulo_do_modal():
         def text_content(self):
             return ""
 
+        def is_visible(self):
+            return self._visivel
+
     class _Page:
         def __init__(self, rots):
-            self._rots = rots
+            # cada item é o rótulo, ou (rótulo, visível)
+            self._rots = [r if isinstance(r, tuple) else (r, True)
+                          for r in rots]
 
         def locator(self, _):
             return _Loc(self._rots)
@@ -183,6 +190,12 @@ def test_verificacao_humana_casa_o_rotulo_do_modal():
     # a cada aviso de boas-vindas.
     assert capture.verificacao_humana(_Page(["Chat temporário"])) is None
     assert capture.verificacao_humana(_Page([])) is None
+    # E o caso que fez a primeira versão errar: o Copilot mantém esse modal
+    # pré-renderizado no DOM com `visibility: hidden`. Invisível não é
+    # bloqueio — marcar as estações como bloqueadas com a tela limpa para a
+    # coleta à toa.
+    assert capture.verificacao_humana(
+        _Page([("Verificação de segurança necessária", False)])) is None
 
 
 def test_fracao_nao_latina_denuncia_resposta_em_outro_alfabeto():

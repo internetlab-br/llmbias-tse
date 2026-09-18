@@ -103,18 +103,31 @@ def verificacao_humana(page) -> str | None:
 
     Existe porque o sintoma, sem isto, é um `Locator.click: Timeout 60000ms
     exceeded` no composer — indistinguível de seletor quebrado. Aconteceu no
-    Copilot em 18/09/2026: o modal "Verificação de segurança necessária"
-    interceptava o clique, a conversa morria depois de 60 s e a estação
-    seguia para a próxima, queimando o plano sem que nada dissesse o motivo.
+    Copilot em 18/09/2026: o clique no composer morria depois de 60 s e a
+    estação seguia para a próxima, queimando o plano sem que nada dissesse o
+    motivo.
+
+    **Exige que o diálogo esteja VISÍVEL**, e isso não é detalhe: o Copilot
+    mantém esse modal pré-renderizado no DOM em regime permanente, com
+    `visibility: hidden`. A primeira versão desta função casava nele sempre, e
+    marcou as duas estações de Copilot como bloqueadas com a tela limpa e o
+    composer utilizável — o Julio conferiu pelo VNC e disse que nunca viu
+    CAPTCHA nenhum. Estava certo. Detector que acusa bloqueio inexistente
+    para a coleta à toa, o que é o mesmo prejuízo de não detectar.
 
     É também o motivo para a queda para `focus()` NÃO vir antes desta
-    checagem: focar pelo DOM ignora o modal e digitaria por baixo dele, o que
-    transformaria um bloqueio visível em dado silenciosamente vazio.
+    checagem: focar pelo DOM ignora um modal REAL e digitaria por baixo dele,
+    o que transformaria um bloqueio visível em dado silenciosamente vazio.
     """
     try:
         dlgs = page.locator("[role=dialog]")
         for i in range(dlgs.count()):
             d = dlgs.nth(i)
+            try:
+                if not d.is_visible():
+                    continue
+            except Exception:
+                continue
             rot = d.get_attribute("aria-label") or ""
             if not rot:
                 rot = (d.text_content() or "")[:200]

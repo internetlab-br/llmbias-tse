@@ -1276,6 +1276,19 @@ class CopilotMomentary(Copilot):
             pass
         return "/chats/temporary" in (page.url or "")
 
+    # NB (18/09/2026): houve aqui um `_tirar_modal_invisivel` que removia do
+    # DOM os `[role=dialog]` invisíveis, para destravar o clique no composer.
+    # FOI REVERTIDO: o composer do Copilot é um editor Lexical, e arrancar nós
+    # por baixo do React corrompe a reconciliação — o editor continuava
+    # renderizando e aceitando texto no DOM, mas o modelo interno ficava
+    # vazio, então nem Enter nem o botão "Enviar" postavam nada. O sintoma era
+    # `SendFailed` em todo turno, com o prompt visível parado no composer e o
+    # texto novo se INTERCALANDO caractere a caractere com o anterior.
+    #
+    # A lição: não mexer no DOM de um editor controlado por framework. Quando
+    # o clique for interceptado, a queda para `focus()` de `focar_composer`
+    # resolve sem tocar na árvore.
+
     def open_new_chat(self, page) -> None:
         page.goto(self.new_chat_url, wait_until="domcontentloaded",
                   timeout=60000)
