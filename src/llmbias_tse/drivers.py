@@ -345,6 +345,32 @@ class BaseDriver:
             time.sleep(0.5)
         return False
 
+    @staticmethod
+    def _normaliza(s: str) -> str:
+        """Só letras e dígitos, minúsculos. Os composers inserem marcas de
+        largura zero (U+200B/U+200C), normalizam espaço e quebram linha do
+        seu jeito; comparar caractere a caractere acusaria diferença em todo
+        turno."""
+        return "".join(c for c in (s or "").lower() if c.isalnum())
+
+    def _composer_confere(self, page, prompt: str, prefixo: int = 40) -> bool:
+        """O composer contém o começo do prompt? Erra para o lado de deixar
+        passar: falso positivo aqui é uma conversa perdida à toa, e há UIs em
+        que não dá para ler o conteúdo do composer."""
+        try:
+            box = capture.first_visible(page, self.composer_selectors,
+                                        timeout=5)
+            atual = box.input_value() if box.evaluate(
+                "e => e.tagName.toLowerCase() === 'textarea' "
+                "|| e.tagName.toLowerCase() === 'input'"
+            ) else (box.text_content() or "")
+        except Exception:
+            return True  # não deu para ler: não é motivo para abortar
+        if not self._normaliza(atual):
+            return True  # composer vazio (algumas UIs limpam no envio)
+        return self._normaliza(atual).startswith(
+            self._normaliza(prompt)[:prefixo])
+
     def _perform_send(self, page, prompt: str) -> None:
         """Foca o composer, LIMPA (Ctrl+A/Delete) e digita o prompt, e envia.
         Limpar antes evita texto duplicado caso um envio anterior não tenha
@@ -379,6 +405,26 @@ class BaseDriver:
             except Exception:
                 pass
             self._digitar(page, prompt)
+            # CONFERE o que ficou no composer antes de enviar. Um editor com o
+            # estado interno dessincronizado (Lexical, no Copilot) aceita o
+            # texto novo INTERCALADO com o rascunho anterior — "Oi, tenho 22
+            # anos, sou hloimnhea mum..." —, o Ctrl+A/Delete não o limpa, e o
+            # modelo responde ao embaralhado. Visto em 18/09/2026: o Copilot
+            # devolveu "a mensagem ficou embaralhada ou com várias letras fora
+            # de ordem", resposta de 244 chars perfeitamente plausível que
+            # entraria na base como dado. Não é falha de envio nem bloqueio:
+            # é a pergunta errada tendo sido feita.
+            if not self._composer_confere(page, prompt):
+                if tentativa == 0:
+                    print(f"[driver:{self.name}] composer embaralhado; "
+                          "recarregando a página e redigitando", flush=True)
+                    self.open_new_chat(page)
+                    continue
+                raise capture.SendFailed(
+                    "o texto no composer não é o prompt (editor "
+                    "dessincronizado) — abortando para não perguntar outra "
+                    "coisa"
+                )
             if not self.submit_selector:
                 page.keyboard.press("Enter")
                 return

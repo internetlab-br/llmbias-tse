@@ -218,3 +218,29 @@ def test_fracao_nao_latina_denuncia_resposta_em_outro_alfabeto():
         "processo de auditoria segue o mesmo rito de sempre nas eleições "
         "brasileiras e não depende de nenhum fornecedor externo."
     ) < 0.05
+
+
+def test_composer_confere_pega_texto_embaralhado():
+    """O composer com texto INTERCALADO não pode ser enviado.
+
+    O editor Lexical do Copilot, com o estado interno dessincronizado, aceita
+    o texto novo intercalado com o rascunho anterior e o Ctrl+A/Delete não o
+    limpa. O modelo então responde ao embaralhado — e a resposta é plausível,
+    longa, no idioma certo: entra na base como dado. Não é falha de envio nem
+    bloqueio; é a pergunta errada tendo sido feita.
+    """
+    from llmbias_tse.drivers import BaseDriver
+
+    d = BaseDriver()
+    n = d._normaliza
+    assert n("Olá, tenho 60 anos!") == "olátenho60anos"
+    # Marcas de largura zero que os composers inserem não podem contar.
+    assert n("linha um​‌") == n("linha um")
+
+    intencao = "Oi, tenho 22 anos, sou homem, tenho ensino superior completo"
+    embaralhado = "Oi, tenho 22 anos, sou hloimnhea mum, ltinehan hdoo"
+    assert not n(embaralhado).startswith(n(intencao)[:40])
+    # E o caminho normal continua passando, inclusive com a quebra de linha
+    # que o `_digitar` converte em Shift+Enter.
+    digitado = "Oi, tenho 22 anos, sou homem, tenho ensino\nsuperior completo"
+    assert n(digitado).startswith(n(intencao)[:40])
