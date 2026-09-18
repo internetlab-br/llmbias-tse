@@ -129,8 +129,8 @@ function motivoHTML(e) {
 // diretório da página, então atrás de um proxy com prefixo ele tentaria
 // ws://host/websockify e falharia com "Failed to connect to server". O
 // parâmetro `path` é o que o faz respeitar o prefixo do Caddy.
-function urlTela(plataforma) {
-  const base = `/vnc/${plataforma}/`;
+function urlTela(sessao) {
+  const base = `/vnc/${sessao}/`;
   return `${base}vnc.html?autoconnect=1&resize=scale&path=${encodeURIComponent(base.slice(1) + "websockify")}`;
 }
 
@@ -145,7 +145,7 @@ function cartaHTML(e) {
   return `
   <div class="carta ${e.precisa_humano ? "alerta" : ""} ${e.estado === "pausado" ? "pausado" : ""}">
     <div class="cab">
-      <span class="nome">${e.plataforma}</span>
+      <span class="nome">${e.sessao}</span>
       <span class="pilula ${e.estado}">${e.estado.replace("_", " ")}</span>
     </div>
     <div class="num">${p.completas}<small> / ${p.alvo || "?"} conversas</small></div>
@@ -161,16 +161,16 @@ function cartaHTML(e) {
     ${motivoHTML(e)}
     <div class="acoes">
       ${e.estado === "rodando"
-        ? `<button onclick="acao('${e.plataforma}','pausar')">pausar</button>`
-        : `<button onclick="acao('${e.plataforma}','play')">retomar</button>`}
-      <a class="botao" href="${urlTela(e.plataforma)}" target="_blank">abrir browser</a>
-      ${e.precisa_humano ? `<button onclick="acao('${e.plataforma}','resolver')">resolvido</button>` : ""}
+        ? `<button onclick="acao('${e.sessao}','pausar')">pausar</button>`
+        : `<button onclick="acao('${e.sessao}','play')">retomar</button>`}
+      <a class="botao" href="${urlTela(e.sessao)}" target="_blank">abrir browser</a>
+      ${e.precisa_humano ? `<button onclick="acao('${e.sessao}','resolver')">resolvido</button>` : ""}
     </div>
   </div>`;
 }
 
-async function acao(plataforma, nome) {
-  await fetch(`/api/estacao/${plataforma}/${nome}`, {method: "POST"});
+async function acao(sessao, nome) {
+  await fetch(`/api/estacao/${encodeURIComponent(sessao)}/${nome}`, {method: "POST"});
   carregar();
 }
 
