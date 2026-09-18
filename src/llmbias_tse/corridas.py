@@ -426,6 +426,33 @@ def sortear_corridas(profile_ids: Sequence[str], seed: int = 2026,
     return dict(zip(pids, fila))
 
 
+def corridas_do_plano(plano: dict, eixo: str) -> dict[str, Corrida]:
+    """As corridas COMO REGISTRADAS em `plano_coleta.json`, por perfil.
+
+    O plano é a fonte da verdade da corrida, e não o resultado de chamar
+    `sortear_corridas` de novo na hora de rodar. O motivo é o que está escrito
+    no aviso de `sortear_corridas`: balancear faz a corrida de um perfil
+    depender de QUANTOS perfis entram no sorteio. A coleta em fatias (uma
+    conta por metade dos perfis, `--fatia`) entrega 50 ids em vez de 100 — e
+    aí o sorteio, ainda que determinístico, dá outra resposta.
+
+    Medido em 18/09/2026: com a fatia, só 6 dos 50 perfis recebiam a corrida
+    que o plano registrou. As conversas ficavam internamente coerentes (o
+    registro guarda o que foi perguntado) e comparáveis entre plataformas (a
+    fatia de um perfil é a mesma em todas), mas perguntavam sobre outra
+    eleição que a do pré-registro. Ler do plano fecha essa porta: a corrida
+    deixa de ser recalculável.
+    """
+    out: dict[str, Corrida] = {}
+    for c in plano.get("conversas", ()):
+        if c.get("eixo") != eixo:
+            continue
+        d = c.get("corrida")
+        if d and c["perfil_id"] not in out:
+            out[c["perfil_id"]] = Corrida(cargo=d["cargo"], uf=d.get("uf"))
+    return out
+
+
 def resumo_cobertura(atribuidas: dict[str, Corrida],
                      desenho: str = DESENHO_PADRAO) -> dict:
     """Quantas corridas do desenho a rodada de fato cobre.

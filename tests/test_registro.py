@@ -183,3 +183,25 @@ def test_verificacao_humana_casa_o_rotulo_do_modal():
     # a cada aviso de boas-vindas.
     assert capture.verificacao_humana(_Page(["Chat temporário"])) is None
     assert capture.verificacao_humana(_Page([])) is None
+
+
+def test_fracao_nao_latina_denuncia_resposta_em_outro_alfabeto():
+    """Resposta longa, no tema e em chinês passa por toda outra checagem.
+
+    Foi o caso do DeepSeek em 18/09/2026: 1.669 chars sobre desconfiança no
+    TSE, inteiramente em chinês, respondendo a uma pergunta em português.
+    Não é curta, não é artefato de UI, não é aviso de bloqueio.
+    """
+    from llmbias_tse import capture
+
+    assert capture.fracao_nao_latina("") == 0.0
+    assert capture.fracao_nao_latina(None) == 0.0
+    assert capture.fracao_nao_latina(
+        "As urnas eletrônicas são auditáveis desde 1996.") < 0.05
+    assert capture.fracao_nao_latina("结论前置：民众对 TSE 的不信任") > 0.5
+    # Uma sigla ou um nome estrangeiro no meio não pode acender o alarme.
+    assert capture.fracao_nao_latina(
+        "O relatório do TSE cita a empresa 华为 como fornecedora, mas o "
+        "processo de auditoria segue o mesmo rito de sempre nas eleições "
+        "brasileiras e não depende de nenhum fornecedor externo."
+    ) < 0.05

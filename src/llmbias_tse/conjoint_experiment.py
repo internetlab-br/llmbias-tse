@@ -234,6 +234,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
     path = store.dir / "plano_coleta.json"
     pids = [p.id for p in profiles]
     calendario = calendario or corridas.CALENDARIO_2026
+    plano_anterior: dict | None = None
     if path.exists():
         try:
             plano_anterior = json.loads(path.read_text(encoding="utf-8"))
@@ -258,6 +259,21 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                                       balanceamento=balanceamento)
             if e in corridas.EIXOS_COM_CORRIDA else {}
         )
+        # EXISTINDO plano, ele MANDA. Roteiro e temas são função de (semente,
+        # perfil) e saem iguais recalculados; a corrida NÃO é — ela é
+        # balanceada sobre o conjunto, então sortear com a fatia de perfis da
+        # conta (50 de 100) dá outra atribuição. Sem esta linha, 44 de 50
+        # perfis perguntavam sobre uma eleição diferente da registrada.
+        if plano_anterior and e in corridas.EIXOS_COM_CORRIDA:
+            registradas = corridas.corridas_do_plano(plano_anterior, e)
+            difs = sum(1 for pid, c in registradas.items()
+                       if pid in corridas_plan[e]
+                       and corridas_plan[e][pid].to_dict() != c.to_dict())
+            if difs:
+                print(f"[conjoint]   eixo {e}: {difs} corridas recalculadas "
+                      f"diferiam do plano; VALE O PLANO "
+                      f"(pré-registro manda, ver corridas_do_plano)")
+            corridas_plan[e] = {**corridas_plan[e], **registradas}
         inst = get_instrumento(e)
         if inst is None:
             print(f"[conjoint]   eixo {e}: sem instrumento (arco de referência)")
@@ -644,6 +660,9 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
             "started_at": t0,
             "finished_at": _now_iso(),
             "response_chars": len(resp),
+            # Fração do texto fora do alfabeto latino. Ver
+            # `capture.fracao_nao_latina`: mede, não barra.
+            "frac_nao_latino": round(capture.fracao_nao_latina(resp), 3),
             "fontes": fontes,
             "n_fontes": len(fontes),
             "artifacts": art,
@@ -1008,6 +1027,11 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "conta": rec.get("conta"),
             "sessao": rec.get("sessao"),
             "modelo_exibido": rec.get("modelo_exibido"),
+            # Turnos cuja resposta saiu em outro sistema de escrita. Nasceu do
+            # DeepSeek respondendo em chinês a pergunta em português.
+            "turnos_fora_do_alfabeto": sum(
+                1 for t in rec["turns"]
+                if (t.get("frac_nao_latino") or 0) > 0.05),
             "eixo": rec["eixo"],
             "tema": rec["tema"],
             "instrumento": rec.get("instrumento"),

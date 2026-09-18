@@ -130,6 +130,32 @@ def verificacao_humana(page) -> str | None:
     return None
 
 
+# Letras fora do alfabeto latino. Serve para medir resposta que saiu em
+# outro sistema de escrita — chinês, cirílico, árabe, japonês, coreano.
+_RE_NAO_LATINO = re.compile(
+    r"[\u0400-\u04ff\u0590-\u08ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]"
+)
+
+
+def fracao_nao_latina(texto: str | None) -> float:
+    """Que fração do texto está fora do alfabeto latino (0 a 1).
+
+    Medida, não guarda: a resposta continua sendo gravada como veio. Existe
+    porque em 18/09/2026 o DeepSeek respondeu a 5 de 48 turnos INTEIRAMENTE
+    em chinês — perguntado em português, sobre eleição brasileira, e com
+    conteúdo no tema. Uma resposta assim passa por toda checagem de tamanho,
+    de artefato de UI e de bloqueio: é longa, é sobre o assunto, não tem nada
+    de errado nela a não ser o idioma. Sem uma coluna que a denuncie, ela
+    entra na base e vai para o juiz como se fosse comparável às outras sete
+    plataformas.
+
+    Não decide nada: o que fazer com essas respostas é da análise.
+    """
+    if not texto:
+        return 0.0
+    return len(_RE_NAO_LATINO.findall(texto)) / len(texto)
+
+
 class RateLimited(Exception):
     """A ferramenta bloqueou temporariamente por excesso de requisições."""
 

@@ -247,3 +247,45 @@ def test_calendario_registra_tudo_o_que_o_bloco_1_escreve():
     d = corridas.CALENDARIO_2026.to_dict()
     assert set(d) == {"ano", "hoje", "primeiro_turno", "segundo_turno",
                       "ano_municipal"}
+
+
+def test_fatia_muda_o_sorteio_e_o_plano_tem_de_mandar():
+    """Balancear faz a corrida depender de QUANTOS perfis entram no sorteio.
+
+    A coleta em fatias (uma conta por metade dos perfis) entrega 50 ids em vez
+    de 100, e o sorteio — determinístico, mas sobre outro conjunto — dá outra
+    resposta. Medido em 18/09/2026: só 6 dos 50 perfis da fatia recebiam a
+    corrida registrada no plano. Este teste fixa as duas metades do problema:
+    que o desvio existe, e que ler do plano o corrige.
+    """
+    from llmbias_tse import corridas
+
+    pids = [f"P{i:03d}" for i in range(1, 101)]
+    cheio = corridas.sortear_corridas(pids, seed=2026, desenho="majoritarias",
+                                      balanceamento="cargo")
+    fatia = [p for k, p in enumerate(pids) if k % 2 == 0]
+    sorteado_na_fatia = corridas.sortear_corridas(
+        fatia, seed=2026, desenho="majoritarias", balanceamento="cargo")
+
+    iguais = sum(1 for p in fatia
+                 if sorteado_na_fatia[p].to_dict() == cheio[p].to_dict())
+    assert iguais < len(fatia), (
+        "se o sorteio na fatia coincidisse com o do conjunto inteiro, este "
+        "teste perderia o sentido — e o bug que ele guarda, também"
+    )
+
+    # O plano registra a atribuição do conjunto INTEIRO; lê-la de volta tem de
+    # devolver exatamente ela, independente de fatia.
+    plano = {"conversas": [
+        {"conversation_id": f"gemini_{p}_voto", "platform": "gemini",
+         "perfil_id": p, "eixo": "voto", "corrida": cheio[p].to_dict()}
+        for p in pids
+    ] + [
+        {"conversation_id": f"gemini_{p}_genero", "platform": "gemini",
+         "perfil_id": p, "eixo": "genero", "corrida": None} for p in pids
+    ]}
+    lidas = corridas.corridas_do_plano(plano, "voto")
+    assert len(lidas) == len(pids)
+    assert all(lidas[p].to_dict() == cheio[p].to_dict() for p in pids)
+    # Eixo sem corrida não inventa entrada.
+    assert corridas.corridas_do_plano(plano, "genero") == {}
