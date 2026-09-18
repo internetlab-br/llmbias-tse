@@ -1177,6 +1177,18 @@ class GoogleAIMode(BaseDriver):
         "Good responseBad response",
         "Uma cópia desta conversa",
         "A copy of this conversation",
+        # 4ª variante, achada em 18/09 na auditoria dos textos salvos: o
+        # aria-live do BOTÃO DE COPIAR. São 132 chars fixos em 124 de 439
+        # turnos (28%), colados no fim — "Copiado para a área de
+        # transferênciaFalha ao copiar para a área de transferência. Tente
+        # novamente mais tarde.CopiadoFalha ao copiar". Passou pelas três
+        # correções anteriores porque nenhuma amostra pequena o pegou, e
+        # porque ele não parece rodapé: parece mensagem de erro, e chegou a
+        # ser confundido com bloqueio da plataforma na primeira leitura.
+        "Copiado para a área de transferência",
+        "Copied to clipboard",
+        "Falha ao copiar para a área de transferência",
+        "Failed to copy to clipboard",
     )
     # Rótulos de botão que encostam no fim do texto sem rodapé antes.
     _rotulos_finais = ("Copiar", "Copy", "Saiba mais", "Learn more",
