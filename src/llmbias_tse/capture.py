@@ -49,6 +49,14 @@ BLOCK_MARKERS = (
     # resposta do modelo, com ok=True.
     "unusual traffic",
     "tráfego incomum",
+    # Copilot, plano gratuito: "You've reached your daily limit. Get more
+    # usage now or check back at 9:00 PM." Entrou na base como RESPOSTA de
+    # 91 chars com ok=True (18/09/2026) — e depois dela o composer aceita
+    # texto e não posta, o que aparecia como `SendFailed` em todo turno e
+    # como `Locator.click` estourando 60 s. Três sintomas, um limite de uso.
+    "reached your daily limit",
+    "atingiu seu limite diário",
+    "daily limit. get more usage",
     "systems have detected unusual",
     "not a robot",
     "não é um robô",
