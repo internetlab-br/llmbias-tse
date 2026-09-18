@@ -186,7 +186,8 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None,
         # não truthiness: fatia vazia (menos perfis que fatias) tem alvo ZERO,
         # e cair no alvo da plataforma inteira faria o painel mostrar a sessão
         # como atrasada para sempre.
-        alvo = len(perfis) * len(pln.get("eixos") or [])
+        eixos_sessao = eixos or (pln.get("eixos") or [])
+        alvo = len(perfis) * len(eixos_sessao)
     elif eixos:
         # o alvo da sessão é o do(s) eixo(s) dela, não o da plataforma inteira
         por_eixo = pln.get("alvo_por_eixo") or {}
@@ -224,16 +225,31 @@ def controle(run_dir, plataforma: str) -> dict:
         "estado": estado if estado in ESTADOS else "rodando",
         "motivo": d.get("motivo"),
         "em": d.get("em"),
+        # Eixos DECLARADOS pelo runner (ver `definir_controle`). Sem repassar
+        # aqui, o alvo da sessão sai calculado com os eixos do plano inteiro.
+        "eixos": d.get("eixos") or None,
     }
 
 
 def definir_controle(run_dir, plataforma: str, estado: str,
-                     motivo=None) -> dict:
+                     motivo=None, eixos=None) -> dict:
+    """Escreve o estado desejado da sessão. `eixos` é DECLARADO pelo runner.
+
+    Por que os eixos vivem aqui: a sessão pode rodar um subconjunto dos eixos
+    do plano (fase 2 roda `voto integridade` em 16 sessões e depois `genero`
+    em 8). Sem isso o painel calcularia o alvo com os TRÊS eixos do plano e
+    mostraria toda sessão como eternamente atrasada. O runner é quem sabe, e
+    declara; as ações do painel (play/pausar) NÃO apagam o que ele declarou.
+    """
     if estado not in ESTADOS:
         raise ValueError(f"estado inválido: {estado!r} (use {ESTADOS})")
     d = Path(run_dir) / "control"
     d.mkdir(parents=True, exist_ok=True)
+    anterior = _ler_json(d / f"{plataforma}.json") or {}
     reg = {"estado": estado, "motivo": motivo, "em": _agora().isoformat()}
+    eixos = eixos if eixos is not None else anterior.get("eixos")
+    if eixos:
+        reg["eixos"] = list(eixos)
     # Escrita atômica: o runner lê este arquivo entre lotes e não pode pegar
     # um JSON pela metade.
     tmp = d / f".{plataforma}.json.tmp"
@@ -253,21 +269,24 @@ def _eventos_por_plataforma(run_dir, horas: int = 24) -> dict:
 def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     """Tudo que o painel mostra de UMA sessão (`plataforma` ou `plataforma.eixo`)."""
     plataforma, suf = partir_sessao(sessao)
+    # O CONTROLE é por sessão, não por plataforma: sessões da mesma plataforma
+    # precisam poder ser pausadas e retomadas em separado. Lido ANTES porque o
+    # alvo depende dos eixos que a sessão declarou aqui.
+    ctl = controle(run_dir, sessao)
     n_fatias = int(os.environ.get("N_FATIAS", "3"))
     fat = fatia_da_sessao(sessao, n_fatias)
     if fat:
-        # sessão por CONTA: roda os três eixos numa fatia dos perfis
+        # sessão por CONTA: roda os eixos que DECLAROU, numa fatia dos perfis
         perfis = perfis_da_fatia(_perfis_do_run(run_dir), *fat)
-        prog = progresso(run_dir, plataforma, pln, perfis=perfis)
+        eixos_decl = ctl.get("eixos") or None
+        prog = progresso(run_dir, plataforma, pln, eixos=eixos_decl,
+                         perfis=perfis)
         eixo = None
     else:
         # sessão por EIXO (forma alternativa) ou plataforma inteira
         eixo = suf
         eixos = [eixo] if eixo else None
         prog = progresso(run_dir, plataforma, pln, eixos=eixos)
-    # O CONTROLE é por sessão, não por plataforma: três sessões da mesma
-    # plataforma precisam poder ser pausadas e retomadas em separado.
-    ctl = controle(run_dir, sessao)
 
     alertas = [e for e in evs if e.get("nivel") == events.ALERTA]
     ultimo_alerta = alertas[-1] if alertas else None

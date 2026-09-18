@@ -1,0 +1,3 @@
+SESSOES=gemini.c1 chatgpt.c1 claude.c1 grok.c1 deepseek.c1 copilot.c1 google_aimode.c1 whatsapp_metaai.c1
+N_FATIAS=1
+EIXOS=genero

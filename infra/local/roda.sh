@@ -28,9 +28,15 @@ mkdir -p "$(dirname "$CONTROLE")"
 
 estado() { jq -r '.estado // "rodando"' "$CONTROLE" 2>/dev/null || echo rodando; }
 marcar() {  # marcar <estado> [motivo]
+  # Declara também os EIXOS desta sessão. O painel precisa deles para calcular
+  # o alvo: a sessão pode rodar um subconjunto do plano (a fase 2 roda
+  # `voto integridade` em 16 sessões e depois `genero` em 8), e sem isso o
+  # alvo sairia com os três eixos do plano e toda sessão apareceria atrasada.
   local tmp; tmp="$(mktemp)"
   jq -n --arg e "$1" --arg m "${2:-}" --arg t "$(date -Is)" \
-     '{estado:$e, motivo:(if $m=="" then null else $m end), em:$t}' > "$tmp"
+     --arg x "$EIXOS" \
+     '{estado:$e, motivo:(if $m=="" then null else $m end), em:$t,
+       eixos:($x | split(" ") | map(select(length>0)))}' > "$tmp"
   mv "$tmp" "$CONTROLE"
 }
 evento() {  # evento <tipo> <nivel> <mensagem>
@@ -64,6 +70,7 @@ alvo() {
       | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
 
+marcar rodando "runner de $SESSAO no ar (eixos: $EIXOS)"
 evento coleta_iniciada info "runner de $SESSAO no ar"
 SEM_PROGRESSO=0
 
