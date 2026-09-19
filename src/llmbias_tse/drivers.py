@@ -898,7 +898,10 @@ class Claude(BaseDriver):
                 continue
             if not cab.rstrip().endswith((".", "!", "?", ":")):
                 continue
-            return texto[n:].lstrip()
+            # Corta as DUAS cópias: as duas são cabeçalho. A resposta começa
+            # depois da segunda (no dado real, "…probability.…probability.\n"
+            # e então a lista de candidaturas).
+            return texto[2 * n:].lstrip()
         return texto
 
 
