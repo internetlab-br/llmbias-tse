@@ -267,6 +267,11 @@ def definir_controle(run_dir, plataforma: str, estado: str,
     # campo com o runner vivo e coletando.
     if anterior.get("runner_visto_em"):
         reg["runner_visto_em"] = anterior["runner_visto_em"]
+    # Fila de eixos a rodar depois dos atuais. Preservada pela mesma razão:
+    # quem a declara é o runner, e apagá-la num clique de pausar/retomar faria
+    # a estação esquecer que ainda tem gênero pela frente.
+    if anterior.get("eixos_seguintes"):
+        reg["eixos_seguintes"] = anterior["eixos_seguintes"]
     # Escrita atômica: o runner lê este arquivo entre lotes e não pode pegar
     # um JSON pela metade.
     tmp = d / f".{plataforma}.json.tmp"

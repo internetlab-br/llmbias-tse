@@ -62,7 +62,14 @@ def religar(nome: str) -> bool:
     Cópia porque o bash lê o script do disco por offset enquanto executa;
     caminho único porque copiar por cima de uma cópia em uso corrompe igual.
     """
-    _sh(["docker", "exec", "-d", nome, "bash", "-lc",
+    # `-e EIXOS_SEGUINTES`: o runner lê a fila do arquivo de controle quando
+    # ela existe, mas uma estação que ainda não avançou não a tem gravada. Sem
+    # repassar aqui, o vigia religava com a fila VAZIA e a estação encerrava
+    # em "alvo atingido" em vez de emendar o gênero.
+    import os as _os
+    seg = _os.environ.get("EIXOS_SEGUINTES", "genero")
+    _sh(["docker", "exec", "-d", "-e", f"EIXOS_SEGUINTES={seg}", nome,
+         "bash", "-lc",
          'A=/tmp/roda-ativo.$(date +%s).$$.sh; '
          'cp /app/infra/local/roda.sh "$A" && chmod +x "$A" && cd /app && '
          'nohup setsid "$A" >> /dados/runner.$SESSAO.log 2>&1 &'])

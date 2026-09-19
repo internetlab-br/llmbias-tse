@@ -61,10 +61,11 @@ marcar() {  # marcar <estado> [motivo]
   # arquivo de controle. Estado sem processo é a mentira mais cara do painel.
   local tmp; tmp="$(mktemp)"
   jq -n --arg e "$1" --arg m "${2:-}" --arg t "$(date -Is)" \
-     --arg x "$EIXOS" \
+     --arg x "$EIXOS" --arg s "$EIXOS_SEGUINTES" \
      '{estado:$e, motivo:(if $m=="" then null else $m end), em:$t,
        runner_visto_em:$t,
-       eixos:($x | split(" ") | map(select(length>0)))}' > "$tmp"
+       eixos:($x | split(" ") | map(select(length>0))),
+       eixos_seguintes:($s | split(" ") | map(select(length>0)))}' > "$tmp"
   mv "$tmp" "$CONTROLE"
 }
 bater() {  # renova o batimento sem mexer no estado nem no motivo
@@ -141,6 +142,21 @@ plat_alvo() {
       --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
       | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
+
+# ADOTA os eixos declarados no controle, se houver. O eixo em curso é estado
+# da SESSÃO, não do processo: quando uma estação avança de voto/integridade
+# para gênero, um runner religado depois (pelo vigia, por um restart do
+# container) precisa continuar de onde estava. Sem isto ele voltava aos eixos
+# do ambiente, via 120/120 feitos e encerrava com "alvo atingido" — foi o que
+# derrubou o DeepSeek de volta em 19/09/2026, depois de já ter avançado.
+EIXOS_CTL="$(jq -r '(.eixos // []) | join(" ")' "$CONTROLE" 2>/dev/null)"
+if [ -n "$EIXOS_CTL" ] && [ "$EIXOS_CTL" != "null" ]; then
+  EIXOS="$EIXOS_CTL"
+fi
+SEG_CTL="$(jq -r '(.eixos_seguintes // []) | join(" ")' "$CONTROLE" 2>/dev/null)"
+if [ -n "$SEG_CTL" ] && [ "$SEG_CTL" != "null" ]; then
+  EIXOS_SEGUINTES="$SEG_CTL"
+fi
 
 # PRESERVA o estado: o runner sobe junto com o container, e forçar "rodando"
 # aqui faria uma estação parada de propósito (esperando login, conta trocada,
