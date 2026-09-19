@@ -43,7 +43,7 @@ from .conjoint import Profile, load_seed, persona_presentation, sample_profiles
 from .drivers import REGISTRY
 from .judge import annotate, annotate_conversa, annotate_panel
 from .rubrics import RESISTENCIAS, RUBRICS, RubricGrid, get_rubric
-from .storage import RunStore, _now_iso
+from .storage import RunStore, _now_iso, turnos_limpos
 from . import instrument
 from .instrumentos import DUPLAS_RESERVA, get_instrumento
 from .user_agent import UserAgent
@@ -1040,6 +1040,8 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
                                         if anot else None)
             for r in RESISTENCIAS
         }
+        # A base de análise lê os turnos LIMPOS, pelo mesmo motivo do juiz.
+        rec = {**rec, "turns": turnos_limpos(rec)}
         row = {
             "id": conv_id,
             "run_id": rec["run_id"],

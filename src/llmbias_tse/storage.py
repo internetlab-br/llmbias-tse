@@ -67,6 +67,55 @@ class Exchange:
     n_turns: int | None = None          # total de turnos da conversa
 
 
+def turnos_limpos(conversation: dict) -> list[dict]:
+    """Os turnos da conversa com o cromo de interface removido da resposta.
+
+    Aplicada NA LEITURA, não na gravação: o arquivo em `conversations/` é o
+    registro BRUTO do que a página devolveu, e reescrever resposta já coletada
+    é mexer no conteúdo do experimento. Quem consome — o juiz e a base de
+    análise — lê por aqui.
+
+    Existe porque um cromo pode ser descoberto depois de a conversa estar
+    gravada, e foi o que aconteceu em 18/09/2026: 124 de 439 turnos do Google
+    AI Mode carregavam 132 chars do aria-live do botão de copiar ("Copiado
+    para a área de transferência…"), colados no fim da resposta. O driver
+    passou a cortá-los na captura, mas os já gravados só se corrigem aqui —
+    e aqui a correção vale para todos, velhos e novos, sem perder o bruto.
+
+    Usa o `limpar_resposta` DO DRIVER da plataforma, que é onde mora o
+    conhecimento sobre o rodapé de cada UI. Plataforma desconhecida passa
+    intacta.
+    """
+    from .drivers import REGISTRY
+    from .conjoint_experiment import PLATFORM_DRIVERS
+
+    plat = conversation.get("platform")
+    chave = (PLATFORM_DRIVERS.get(plat) or (plat,))[0]
+    driver = REGISTRY.get(chave)
+    turns = conversation.get("turns") or []
+    if driver is None:
+        return list(turns)
+    d = driver()
+    saida = []
+    for t in turns:
+        r = t.get("response")
+        if not r:
+            saida.append(t)
+            continue
+        limpo = d.limpar_resposta(r)
+        if limpo == r:
+            saida.append(t)
+            continue
+        novo = dict(t)
+        novo["response"] = limpo
+        novo["response_chars"] = len(limpo)
+        # Guarda o que foi tirado: sem isto, "o texto mudou" vira afirmação
+        # sem prova, e a diferença entre o bruto e o lido fica indevassável.
+        novo["chars_cromo_removido"] = len(r) - len(limpo)
+        saida.append(novo)
+    return saida
+
+
 class RunStore:
     """Escreve registros e artefatos de uma rodada de coleta."""
 

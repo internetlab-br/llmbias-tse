@@ -6,6 +6,7 @@ levariam ao erro quem for analisar os dados.
 
 from __future__ import annotations
 
+import json
 import pytest
 
 from llmbias_tse import corridas
@@ -244,3 +245,43 @@ def test_composer_confere_pega_texto_embaralhado():
     # que o `_digitar` converte em Shift+Enter.
     digitado = "Oi, tenho 22 anos, sou homem, tenho ensino\nsuperior completo"
     assert n(digitado).startswith(n(intencao)[:40])
+
+
+def test_turnos_limpos_tira_o_cromo_sem_tocar_no_bruto():
+    """A limpeza acontece NA LEITURA; o arquivo segue com o que a página deu.
+
+    Regra combinada com o Julio em 18/09/2026, quando apareceram 124 turnos do
+    Google AI Mode com o aria-live do botão de copiar colado na resposta:
+    reescrever resposta coletada é mexer no conteúdo do experimento, então o
+    bruto fica e quem consome (juiz e base) lê limpo.
+    """
+    from llmbias_tse.storage import turnos_limpos
+
+    bruto = {
+        "platform": "google_aimode",
+        "turns": [
+            {"turn": 1, "ok": True, "response_chars": 200,
+             "response": "A urna eletrônica é auditável desde 1996." +
+                         " Copiado para a área de transferênciaFalha ao "
+                         "copiar para a área de transferência. Tente "
+                         "novamente mais tarde.CopiadoFalha ao copiar"},
+            {"turn": 2, "ok": True, "response_chars": 20,
+             "response": "Resposta sem cromo."},
+        ],
+    }
+    copia = json.loads(json.dumps(bruto))
+    limpos = turnos_limpos(bruto)
+
+    assert limpos[0]["response"] == "A urna eletrônica é auditável desde 1996."
+    assert limpos[0]["response_chars"] == len(limpos[0]["response"])
+    assert limpos[0]["chars_cromo_removido"] > 100
+    # Turno sem cromo passa intacto, e sem ganhar o campo novo.
+    assert limpos[1]["response"] == "Resposta sem cromo."
+    assert "chars_cromo_removido" not in limpos[1]
+    # O registro de entrada NÃO pode ter sido alterado.
+    assert bruto == copia
+
+    # Plataforma sem driver conhecido passa intacta em vez de estourar.
+    assert turnos_limpos({"platform": "inexistente",
+                          "turns": [{"turn": 1, "response": "x"}]})[0][
+        "response"] == "x"
