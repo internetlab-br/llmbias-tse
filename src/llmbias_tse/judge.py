@@ -460,7 +460,11 @@ def annotate(conversation: dict, rubric: RubricGrid, *,
              model: str | None = None, juiz=None) -> dict:
     """Anota uma conversa: extrai achados de cada resposta do assistente e
     agrega contagens descritivas (sem escore somado)."""
-    turns = conversation.get("turns", [])
+    # Turnos LIMPOS: o registro em disco é o bruto do que a página
+    # devolveu, e cromo de interface não pode entrar no prompt do
+    # juiz. Ver `storage.turnos_limpos`.
+    from .storage import turnos_limpos
+    turns = turnos_limpos(conversation)
     tipos_codigos = [t.codigo for t in rubric.tipos]
 
     por_turno: list[dict] = []
@@ -567,7 +571,11 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
     de input por conversa por juiz), enquanto este manda a conversa uma vez só
     (~11 mil).
     """
-    turns = conversation.get("turns", [])
+    # Turnos LIMPOS: o registro em disco é o bruto do que a página
+    # devolveu, e cromo de interface não pode entrar no prompt do
+    # juiz. Ver `storage.turnos_limpos`.
+    from .storage import turnos_limpos
+    turns = turnos_limpos(conversation)
     tipos_codigos = [t.codigo for t in rubric.tipos]
     conversa, avaliaveis = _format_conversa(turns)
 

@@ -7,8 +7,9 @@ nem de SSH para nada do dia a dia, o que é o que permite expô-lo para o time
 sem transformar o botão de pausa numa porta de execução remota.
 
 O acesso à tela de cada estação (o "abrir o browser") é feito pelo Caddy, que
-faz proxy de `/vnc/<plataforma>/` para o noVNC daquele container. O painel só
-publica o link.
+faz proxy de `/vnc/<sessao>/` para o noVNC daquele container. O painel só
+publica o link. A rota é a SESSÃO (`gemini.c1`), não a plataforma: com mais de
+uma conta por plataforma, `/vnc/gemini/` não é rota de ninguém.
 
     uv run --extra painel uvicorn infra.local.dashboard.app:app --port 8000
 """
@@ -46,6 +47,17 @@ def api_status(horas: int = 24):
     return status.resumo(RUN_DIR, PLATAFORMAS, horas=horas)
 
 
+@app.get("/api/nucleo")
+def api_nucleo():
+    """Perfis completos em TODAS as plataformas, por eixo.
+
+    É o N que governa a comparação: um perfil só entra se as oito o
+    coletaram, então a plataforma mais lenta define o número e uma adiantada
+    não compensa outra atrasada. Olhar só o progresso por sessão esconde isso.
+    """
+    return status.nucleo_pareado(RUN_DIR, PLATAFORMAS)
+
+
 @app.get("/api/eventos")
 def api_eventos(plataforma: str | None = None, nivel: str | None = None,
                 limite: int = 200):
@@ -67,7 +79,12 @@ def api_acao(plataforma: str, acao: str, motivo: str | None = None):
     vermelho para sempre depois do primeiro bloqueio.
     """
     if plataforma not in PLATAFORMAS:
-        raise HTTPException(404, f"plataforma desconhecida: {plataforma}")
+        # Dizer QUAIS existem: o nome da estação mudou de `gemini` para
+        # `gemini.c1` quando entraram as contas, e um 404 mudo não conta isso.
+        raise HTTPException(
+            404,
+            f"sessão desconhecida: {plataforma}. "
+            f"Sessões desta rodada: {', '.join(PLATAFORMAS)}")
     destino = {
         "play": "rodando",
         "retomar": "rodando",

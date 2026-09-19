@@ -49,6 +49,14 @@ BLOCK_MARKERS = (
     # resposta do modelo, com ok=True.
     "unusual traffic",
     "tráfego incomum",
+    # Copilot, plano gratuito: "You've reached your daily limit. Get more
+    # usage now or check back at 9:00 PM." Entrou na base como RESPOSTA de
+    # 91 chars com ok=True (18/09/2026) — e depois dela o composer aceita
+    # texto e não posta, o que aparecia como `SendFailed` em todo turno e
+    # como `Locator.click` estourando 60 s. Três sintomas, um limite de uso.
+    "reached your daily limit",
+    "atingiu seu limite diário",
+    "daily limit. get more usage",
     "systems have detected unusual",
     "not a robot",
     "não é um robô",
@@ -78,6 +86,95 @@ def texto_de_bloqueio(texto: str | None, limite: int = 400) -> str | None:
         if m in baixo:
             return m
     return None
+
+
+# Modal de verificação humana (CAPTCHA). Casado pelo RÓTULO do diálogo, não
+# pelo texto da página: o texto visível é curto e genérico ("Verificação
+# obrigatória"), e procurar isso no body daria falso-positivo.
+_RE_VERIFICACAO = re.compile(
+    r"(verifica[cç][aã]o de seguran[cç]a"
+    r"|security verification"
+    r"|verify (that )?you(\'re| are)? ?human"
+    r"|confirme que (voc[eê]|tu) [eé] human"
+    r"|captcha)",
+    re.I,
+)
+
+
+class VerificacaoHumana(Exception):
+    """A plataforma interpôs verificação humana (CAPTCHA). Só uma pessoa sai
+    disso — o certo é PARAR e chamar, não tentar digitar por baixo do modal."""
+
+
+def verificacao_humana(page) -> str | None:
+    """Rótulo do modal de verificação humana, se estiver na tela, senão None.
+
+    Existe porque o sintoma, sem isto, é um `Locator.click: Timeout 60000ms
+    exceeded` no composer — indistinguível de seletor quebrado. Aconteceu no
+    Copilot em 18/09/2026: o clique no composer morria depois de 60 s e a
+    estação seguia para a próxima, queimando o plano sem que nada dissesse o
+    motivo.
+
+    **Exige que o diálogo esteja VISÍVEL**, e isso não é detalhe: o Copilot
+    mantém esse modal pré-renderizado no DOM em regime permanente, com
+    `visibility: hidden`. A primeira versão desta função casava nele sempre, e
+    marcou as duas estações de Copilot como bloqueadas com a tela limpa e o
+    composer utilizável — o Julio conferiu pelo VNC e disse que nunca viu
+    CAPTCHA nenhum. Estava certo. Detector que acusa bloqueio inexistente
+    para a coleta à toa, o que é o mesmo prejuízo de não detectar.
+
+    É também o motivo para a queda para `focus()` NÃO vir antes desta
+    checagem: focar pelo DOM ignora um modal REAL e digitaria por baixo dele,
+    o que transformaria um bloqueio visível em dado silenciosamente vazio.
+    """
+    try:
+        dlgs = page.locator("[role=dialog]")
+        for i in range(dlgs.count()):
+            d = dlgs.nth(i)
+            try:
+                if not d.is_visible():
+                    continue
+            except Exception:
+                continue
+            rot = d.get_attribute("aria-label") or ""
+            if not rot:
+                rot = (d.text_content() or "")[:200]
+            # Normaliza ANTES de casar: o rótulo do Copilot vem com espaço
+            # inquebrável ("Verificação de\xa0segurança"), e um espaço
+            # literal no padrão não casa com ele. Foi assim que o primeiro
+            # detector não detectou o próprio modal que o motivou.
+            rot = re.sub(r"\s+", " ", rot).strip()
+            if rot and _RE_VERIFICACAO.search(rot):
+                return rot[:120]
+    except Exception:
+        return None
+    return None
+
+
+# Letras fora do alfabeto latino. Serve para medir resposta que saiu em
+# outro sistema de escrita — chinês, cirílico, árabe, japonês, coreano.
+_RE_NAO_LATINO = re.compile(
+    r"[\u0400-\u04ff\u0590-\u08ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]"
+)
+
+
+def fracao_nao_latina(texto: str | None) -> float:
+    """Que fração do texto está fora do alfabeto latino (0 a 1).
+
+    Medida, não guarda: a resposta continua sendo gravada como veio. Existe
+    porque em 18/09/2026 o DeepSeek respondeu a 5 de 48 turnos INTEIRAMENTE
+    em chinês — perguntado em português, sobre eleição brasileira, e com
+    conteúdo no tema. Uma resposta assim passa por toda checagem de tamanho,
+    de artefato de UI e de bloqueio: é longa, é sobre o assunto, não tem nada
+    de errado nela a não ser o idioma. Sem uma coluna que a denuncie, ela
+    entra na base e vai para o juiz como se fosse comparável às outras sete
+    plataformas.
+
+    Não decide nada: o que fazer com essas respostas é da análise.
+    """
+    if not texto:
+        return 0.0
+    return len(_RE_NAO_LATINO.findall(texto)) / len(texto)
 
 
 class RateLimited(Exception):
@@ -150,6 +247,40 @@ def first_visible(page, selectors: list[str], timeout: float = 15.0):
         f"Nenhum dos seletores ficou visível em {timeout}s: {selectors} "
         f"(último erro: {last_err!r})"
     )
+
+
+def focar_composer(page, selectors: list[str], timeout: float = 15.0):
+    """Põe o cursor no composer e devolve o locator usado.
+
+    Tenta CLICAR e, se o clique não passar em `timeout`, FOCA pelo DOM. O
+    clique é o caminho preferido — é o que um humano faz, e alguns composers
+    só montam o editor de verdade no primeiro clique —, mas depende de duas
+    coisas que não controlamos: a área estar livre na tela e o elemento não
+    ter sido recriado entre resolver o locator e clicar. `focus()` não depende
+    de nenhuma das duas, e o teclado escreve igual.
+
+    Motivo: em 18/09/2026 o Copilot abortou uma conversa com `Locator.click:
+    Timeout 60000ms exceeded` no `span[role=textbox]` do composer. São 60 s
+    parado e uma conversa perdida onde focar resolveria na hora — e o mesmo
+    sintoma aparece em qualquer UI que ponha um aviso sobre o composer.
+    """
+    box = first_visible(page, selectors, timeout=timeout)
+    try:
+        box.click(timeout=timeout * 1000)
+        return box
+    except Exception as e:
+        print(f"[capture] clique no composer falhou ({e!r} truncado); "
+              "focando pelo DOM", flush=True)
+    for tentativa in range(2):
+        try:
+            box = first_visible(page, selectors, timeout=timeout)
+            box.evaluate("el => el.focus()")
+            return box
+        except Exception:
+            if tentativa:
+                raise
+            time.sleep(1.0)
+    return box
 
 
 def type_text(page, selectors: list[str], text: str) -> None:

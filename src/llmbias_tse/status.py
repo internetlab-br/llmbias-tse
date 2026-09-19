@@ -186,7 +186,8 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None,
         # não truthiness: fatia vazia (menos perfis que fatias) tem alvo ZERO,
         # e cair no alvo da plataforma inteira faria o painel mostrar a sessão
         # como atrasada para sempre.
-        alvo = len(perfis) * len(pln.get("eixos") or [])
+        eixos_sessao = eixos or (pln.get("eixos") or [])
+        alvo = len(perfis) * len(eixos_sessao)
     elif eixos:
         # o alvo da sessão é o do(s) eixo(s) dela, não o da plataforma inteira
         por_eixo = pln.get("alvo_por_eixo") or {}
@@ -217,6 +218,12 @@ def progresso(run_dir, plataforma: str, pln=None, eixos=None,
     }
 
 
+# Minutos de silêncio (sem batimento E sem evento) que fazem uma sessão
+# "rodando" ser tratada como sem runner. Um lote de conversas emite evento por
+# turno, então um turno leva bem menos que isto.
+_RUNNER_SILENCIO_MIN = 10
+
+
 def controle(run_dir, plataforma: str) -> dict:
     d = _ler_json(Path(run_dir) / "control" / f"{plataforma}.json") or {}
     estado = d.get("estado") or "rodando"
@@ -224,16 +231,42 @@ def controle(run_dir, plataforma: str) -> dict:
         "estado": estado if estado in ESTADOS else "rodando",
         "motivo": d.get("motivo"),
         "em": d.get("em"),
+        # Eixos DECLARADOS pelo runner (ver `definir_controle`). Sem repassar
+        # aqui, o alvo da sessão sai calculado com os eixos do plano inteiro.
+        "eixos": d.get("eixos") or None,
+        # Batimento do runner. Escrito só por ele (o painel não o escreve, e
+        # não deve: é a prova de que existe processo, não de que alguém
+        # clicou). Ausente = runner nunca se anunciou nesta sessão.
+        "runner_visto_em": d.get("runner_visto_em"),
     }
 
 
 def definir_controle(run_dir, plataforma: str, estado: str,
-                     motivo=None) -> dict:
+                     motivo=None, eixos=None) -> dict:
+    """Escreve o estado desejado da sessão. `eixos` é DECLARADO pelo runner.
+
+    Por que os eixos vivem aqui: a sessão pode rodar um subconjunto dos eixos
+    do plano (fase 2 roda `voto integridade` em 16 sessões e depois `genero`
+    em 8). Sem isso o painel calcularia o alvo com os TRÊS eixos do plano e
+    mostraria toda sessão como eternamente atrasada. O runner é quem sabe, e
+    declara; as ações do painel (play/pausar) NÃO apagam o que ele declarou.
+    """
     if estado not in ESTADOS:
         raise ValueError(f"estado inválido: {estado!r} (use {ESTADOS})")
     d = Path(run_dir) / "control"
     d.mkdir(parents=True, exist_ok=True)
+    anterior = _ler_json(d / f"{plataforma}.json") or {}
     reg = {"estado": estado, "motivo": motivo, "em": _agora().isoformat()}
+    eixos = eixos if eixos is not None else anterior.get("eixos")
+    if eixos:
+        reg["eixos"] = list(eixos)
+    # PRESERVA o batimento do runner. O painel não o escreve (é prova de
+    # processo, não de clique), mas apagá-lo é pior: qualquer ação no painel
+    # fazia a estação parecer sem runner até o fim do lote em curso, que leva
+    # horas. Visto na prática em 18/09: um "resolvido" no WhatsApp zerou o
+    # campo com o runner vivo e coletando.
+    if anterior.get("runner_visto_em"):
+        reg["runner_visto_em"] = anterior["runner_visto_em"]
     # Escrita atômica: o runner lê este arquivo entre lotes e não pode pegar
     # um JSON pela metade.
     tmp = d / f".{plataforma}.json.tmp"
@@ -253,21 +286,30 @@ def _eventos_por_plataforma(run_dir, horas: int = 24) -> dict:
 def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     """Tudo que o painel mostra de UMA sessão (`plataforma` ou `plataforma.eixo`)."""
     plataforma, suf = partir_sessao(sessao)
+    # O CONTROLE é por sessão, não por plataforma: sessões da mesma plataforma
+    # precisam poder ser pausadas e retomadas em separado. Lido ANTES porque o
+    # alvo depende dos eixos que a sessão declarou aqui.
+    ctl = controle(run_dir, sessao)
     n_fatias = int(os.environ.get("N_FATIAS", "3"))
     fat = fatia_da_sessao(sessao, n_fatias)
     if fat:
-        # sessão por CONTA: roda os três eixos numa fatia dos perfis
+        # sessão por CONTA: roda os eixos que DECLAROU, numa fatia dos perfis
         perfis = perfis_da_fatia(_perfis_do_run(run_dir), *fat)
-        prog = progresso(run_dir, plataforma, pln, perfis=perfis)
+        # Ordem de precedência: o que o runner DECLAROU > os eixos da FASE
+        # (env `EIXOS`, que o compose da fase define) > os eixos do plano.
+        # Sem o nível da fase, uma sessão que ainda não começou aparece com
+        # alvo dos três eixos do plano — 150 em vez de 100 na fase A.
+        eixos_decl = (ctl.get("eixos")
+                      or [e for e in os.environ.get("EIXOS", "").split() if e]
+                      or None)
+        prog = progresso(run_dir, plataforma, pln, eixos=eixos_decl,
+                         perfis=perfis)
         eixo = None
     else:
         # sessão por EIXO (forma alternativa) ou plataforma inteira
         eixo = suf
         eixos = [eixo] if eixo else None
         prog = progresso(run_dir, plataforma, pln, eixos=eixos)
-    # O CONTROLE é por sessão, não por plataforma: três sessões da mesma
-    # plataforma precisam poder ser pausadas e retomadas em separado.
-    ctl = controle(run_dir, sessao)
 
     alertas = [e for e in evs if e.get("nivel") == events.ALERTA]
     ultimo_alerta = alertas[-1] if alertas else None
@@ -293,7 +335,29 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
     if ultimo_alerta:
         ta = _parse_ts(ultimo_alerta.get("ts")) or _agora()
         alerta_pendente = not any(m > ta for m in marcos)
-    precisa = ctl["estado"] == "precisa_humano" or alerta_pendente
+    # RODANDO SEM RUNNER. O estado do painel é um arquivo; o batimento é a
+    # prova de que existe processo lendo esse arquivo. Em 18/09 as 16 sessões
+    # apareceram "rodando" por três minutos sem nenhum runner no ar — o play
+    # escrevia num arquivo que ninguém lia — e o painel não tinha como dizer.
+    #
+    # Duas provas de vida, qualquer uma serve: o batimento do runner, ou
+    # evento recente. A segunda é necessária porque o runner só bate ENTRE
+    # lotes, e um lote leva horas; durante ele, quem prova que a coleta anda
+    # são os eventos de turno.
+    hb = _parse_ts(ctl.get("runner_visto_em"))
+    hb_min = round((_agora() - hb).total_seconds() / 60) if hb else None
+    desde_play = _parse_ts(ctl.get("em"))
+    play_min = (round((_agora() - desde_play).total_seconds() / 60)
+                if desde_play else None)
+    vivo = ((hb_min is not None and hb_min <= _RUNNER_SILENCIO_MIN)
+            or (parado_min is not None and parado_min <= _RUNNER_SILENCIO_MIN))
+    # A carência evita alarme no minuto seguinte ao play, quando ainda não há
+    # batimento nem evento por um motivo legítimo.
+    sem_runner = (ctl["estado"] == "rodando" and not vivo
+                  and (play_min is None or play_min > _RUNNER_SILENCIO_MIN))
+
+    precisa = (ctl["estado"] == "precisa_humano" or alerta_pendente
+               or sem_runner)
 
     return {
         "sessao": sessao,
@@ -312,19 +376,79 @@ def estacao(run_dir, sessao: str, pln: dict, evs: list) -> dict:
         "ultimo_alerta": ultimo_alerta,
         "ultimo_evento": ultimo_evento,
         "parado_ha_min": parado_min,
+        "runner_visto_ha_min": hb_min,
+        "sem_runner": sem_runner,
     }
+
+
+def nucleo_pareado(run_dir, plataformas: list, eixos=None) -> dict:
+    """Perfis COMPLETOS em TODAS as plataformas, por eixo.
+
+    É o número que governa a comparação entre plataformas: um perfil só entra
+    na comparação se as oito o coletaram. Cada estação percorre sua fatia em
+    ordem de id, então o conjunto completo de uma plataforma é um PREFIXO da
+    mesma lista — e a interseção sai naturalmente. O que abre buraco no
+    prefixo é conversa que falhou e ainda não foi refeita, e é exatamente isso
+    que este número expõe: a plataforma mais lenta define o N comparável, e
+    uma plataforma adiantada não compensa outra atrasada.
+    """
+    run_dir = Path(run_dir)
+    pln = plano(run_dir)
+    plats = sorted({partir_sessao(s)[0] for s in plataformas})
+    eixos = eixos or (pln.get("eixos") or [])
+    por_plat_eixo: dict[tuple[str, str], set] = {}
+    conv_dir = run_dir / "conversations"
+    if conv_dir.exists():
+        esperados = pln.get("turnos_esperados") or {}
+        for f in conv_dir.glob("*.json"):
+            rec = _ler_json(f)
+            if not rec:
+                continue
+            plat, eixo = rec.get("platform"), rec.get("eixo")
+            perfil = (rec.get("perfil_id") or rec.get("profile_id")
+                      or (rec.get("profile") or {}).get("id"))
+            if not (plat and eixo and perfil):
+                continue
+            turns = rec.get("turns") or []
+            alvo = (esperados.get(f"{perfil}_{eixo}")
+                    or TURNOS_PADRAO.get(eixo, 10))
+            if len(turns) == alvo and all(t.get("ok") for t in turns):
+                por_plat_eixo.setdefault((plat, eixo), set()).add(perfil)
+    out = {}
+    for e in eixos:
+        conjuntos = [por_plat_eixo.get((p, e), set()) for p in plats]
+        comum = set.intersection(*conjuntos) if conjuntos else set()
+        out[e] = {
+            "n": len(comum),
+            "por_plataforma": {p: len(por_plat_eixo.get((p, e), set()))
+                               for p in plats},
+            "gargalo": min(
+                ((len(por_plat_eixo.get((p, e), set())), p) for p in plats),
+                default=(0, None))[1],
+        }
+    return {"plataformas": plats, "por_eixo": out}
 
 
 def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
     run_dir = Path(run_dir)
     pln = plano(run_dir)
     idx = _eventos_por_plataforma(run_dir, horas)
-    # `plataformas` aceita sessões (`plataforma.eixo`). Os eventos são
-    # indexados por PLATAFORMA, então três sessões da mesma plataforma vêem os
-    # mesmos eventos — aceitável: o que distingue uma da outra é o progresso e
-    # o controle, e o driver não sabe em qual sessão está.
-    estacoes = [estacao(run_dir, s, pln, idx.get(partir_sessao(s)[0], []))
-                for s in plataformas]
+    # Os eventos passaram a ser indexados por SESSÃO (`gemini.c1`), e não mais
+    # pelo nome nu da plataforma. Procurar pela sessão PRIMEIRO é o que faz o
+    # cartão mostrar o que aquela estação está fazendo; cair na plataforma é
+    # para a rodada 1, onde havia uma estação por plataforma, e para os
+    # eventos gravados antes da mudança.
+    #
+    # Sem esta ordem, 11 das 16 estações apareceram "runner fora do ar"
+    # (18/09/2026) COM runner e coleta vivos emitindo evento a cada minuto: a
+    # busca casava no balde antigo, cujo último evento era de 40 min antes.
+    # Falso alarme custa tanto quanto alarme perdido — o painel deixa de ser
+    # lido, e aí não avisa o que quebrou de verdade.
+    estacoes = [
+        estacao(run_dir, s, pln,
+                idx.get(s) or idx.get(partir_sessao(s)[0], []))
+        for s in plataformas
+    ]
     total = sum(e["progresso"]["completas"] for e in estacoes)
     alvo = sum(e["progresso"]["alvo"] for e in estacoes)
     return {
@@ -338,6 +462,7 @@ def resumo(run_dir, plataformas: list, horas: int = 24) -> dict:
         },
         "total": {"completas": total, "alvo": alvo,
                   "pct": round(100 * total / alvo, 1) if alvo else None},
+        "nucleo_pareado": nucleo_pareado(run_dir, plataformas),
         "precisam_humano": [e["sessao"] for e in estacoes
                             if e["precisa_humano"]],
         "estacoes": estacoes,
