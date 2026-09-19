@@ -111,13 +111,15 @@ PY_VENV="${PY_VENV:-/home/coleta/venv/bin/python}"
 
 completas() {
   "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
-      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      --run-dir "$RUN_DIR" --eixos $EIXOS ${FATIA:+--fatia "$FATIA"} \
+      2>/dev/null \
       | grep -oP '^COMPLETAS=\K[0-9]+'
 }
 
 alvo() {
   "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
-      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      --run-dir "$RUN_DIR" --eixos $EIXOS ${FATIA:+--fatia "$FATIA"} \
+      2>/dev/null \
       | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
 
