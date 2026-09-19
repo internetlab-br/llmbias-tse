@@ -453,6 +453,39 @@ def corridas_do_plano(plano: dict, eixo: str) -> dict[str, Corrida]:
     return out
 
 
+def estender_corridas(registradas: dict[str, Corrida],
+                      novos_ids: Sequence[str], seed: int = 2026,
+                      desenho: str = DESENHO_PADRAO,
+                      balanceamento: str = BALANCEAMENTO_PADRAO,
+                      ) -> dict[str, Corrida]:
+    """Acrescenta perfis a uma rodada em andamento SEM remexer os que já têm
+    corrida registrada.
+
+    Existe porque `sortear_corridas` é balanceado sobre o CONJUNTO: pedir 120
+    perfis em vez de 100 reatribui a corrida de quase todos — medido em
+    19/09/2026, só 9 dos 100 sobreviveriam. Com 1.303 conversas já coletadas
+    sob as corridas registradas, reatribuir é trocar o estímulo de perna
+    inteira no meio da rodada.
+
+    Perfis, roteiros e temas NÃO têm esse problema: são função de (semente,
+    perfil) e saem idênticos ao estender. A corrida é a única peça do plano
+    que depende de quantos perfis existem, e por isso é a única que precisa
+    desta função.
+
+    Os novos recebem um sorteio balanceado PRÓPRIO, determinístico em
+    (semente, ids novos, desenho, balanceamento). A alternativa — continuar a
+    fila original — não existe: a fila é construída para um tamanho e
+    embaralhada, não é uma sequência que se estenda. Duas filas balanceadas
+    somadas mantêm a proporção por cargo, que é o que o balanceamento protege.
+    """
+    novos = [p for p in sorted(novos_ids) if p not in registradas]
+    if not novos:
+        return dict(registradas)
+    extra = sortear_corridas(novos, seed=seed, desenho=desenho,
+                             balanceamento=balanceamento)
+    return {**registradas, **extra}
+
+
 def resumo_cobertura(atribuidas: dict[str, Corrida],
                      desenho: str = DESENHO_PADRAO) -> dict:
     """Quantas corridas do desenho a rodada de fato cobre.

@@ -145,15 +145,45 @@ def _fatiar_perfis(profiles: list[Profile], fatia: str) -> list[Profile]:
 
 
 def _load_or_sample_profiles(store: RunStore, n: int, seed: int) -> list[Profile]:
+    """Os perfis da rodada, congelados em `profiles.json` na primeira execução.
+
+    Aceita AUMENTAR o N no meio da rodada (`--n-profiles` maior), que é o
+    caso de "as plataformas rápidas fecharam o alvo, dá para ir além". A
+    amostra é i.i.d. com reposição, sorteada em sequência, então os primeiros
+    N continuam idênticos — mas isso é CONFERIDO, não suposto: se o prefixo
+    divergir, alguém mexeu na semente ou no sorteador, e seguir em frente
+    trocaria o perfil de conversas já coletadas.
+
+    Diminuir o N não faz nada: os perfis já coletados continuam no arquivo.
+    """
     path = store.dir / "profiles.json"
-    if path.exists():
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        print(f"[conjoint] reusando {len(raw)} perfis de {path}")
-        return [Profile(**p) for p in raw]
-    profiles = sample_profiles(n, seed=seed)
-    _save_json(path, [asdict(p) for p in profiles])
-    print(f"[conjoint] sorteados {len(profiles)} perfis (seed={seed}) -> {path}")
-    return profiles
+    if not path.exists():
+        profiles = sample_profiles(n, seed=seed)
+        _save_json(path, [asdict(p) for p in profiles])
+        print(f"[conjoint] sorteados {len(profiles)} perfis (seed={seed}) "
+              f"-> {path}")
+        return profiles
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    atuais = [Profile(**p) for p in raw]
+    if n <= len(atuais):
+        print(f"[conjoint] reusando {len(atuais)} perfis de {path}")
+        return atuais
+
+    novos = sample_profiles(n, seed=seed)
+    prefixo_bate = all(a == b for a, b in zip(atuais, novos[:len(atuais)]))
+    if not prefixo_bate:
+        divergem = [a.id for a, b in zip(atuais, novos) if a != b][:5]
+        raise SystemExit(
+            f"[conjoint] ABORTADO: pedir {n} perfis mudaria os {len(atuais)} "
+            f"que já estão em {path} (divergem: {divergem}). A extensão só é "
+            f"segura quando os primeiros N são idênticos. Confira a semente "
+            f"(--seed) ou use um --run-id novo."
+        )
+    _save_json(path, [asdict(p) for p in novos])
+    print(f"[conjoint] perfis ESTENDIDOS de {len(atuais)} para {len(novos)} "
+          f"(seed={seed}); os {len(atuais)} primeiros idênticos -> {path}")
+    return novos
 
 
 def _snapshot_rubrics(store: RunStore, eixos: list[str]) -> dict[str, RubricGrid]:
@@ -277,7 +307,13 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                 print(f"[conjoint]   eixo {e}: {difs} corridas recalculadas "
                       f"diferiam do plano; VALE O PLANO "
                       f"(pré-registro manda, ver corridas_do_plano)")
-            corridas_plan[e] = {**corridas_plan[e], **registradas}
+            # Perfis NOVOS (rodada estendida) recebem sorteio balanceado
+            # próprio; os registrados ficam como estão. Ver
+            # `corridas.estender_corridas` — é a única peça do plano que
+            # depende de quantos perfis existem.
+            corridas_plan[e] = corridas.estender_corridas(
+                registradas, pids, seed=seed, desenho=desenho_corrida,
+                balanceamento=balanceamento)
         inst = get_instrumento(e)
         if inst is None:
             print(f"[conjoint]   eixo {e}: sem instrumento (arco de referência)")
@@ -320,31 +356,57 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                       f"{', '.join(cob['faltando'][:8])}"
                       + (" ..." if len(cob["faltando"]) > 8 else ""))
 
+    def _entrada(pl, prof, e):
+        inst = get_instrumento(e)
+        rot = roteiros.get(e, {}).get(prof.id, ())
+        cob = instrument.resumo_cobertura(inst, rot) if inst else {}
+        fmt = instrument.resumo_formato(rot)
+        flags = temas_plan.get(e, {}).get(prof.id, {}) or {}
+        cor = corridas_plan.get(e, {}).get(prof.id)
+        return {
+            "conversation_id": f"{pl}_{prof.id}_{e}",
+            "platform": pl, "perfil_id": prof.id, "eixo": e,
+            "alternativas": [a.key for t_ in rot for a in t_.alternativas],
+            "temas_flags": flags,
+            "temas_incluidos": [c for c, v in flags.items() if v],
+            "cobertura_temas": cob,
+            "corrida": cor.to_dict() if cor else None,
+            **fmt,
+        }
+
     if path.exists():
-        print(f"[conjoint] reusando plano de coleta de {path}")
-    else:
+        # EXTENSÃO: perfis que ainda não estão no plano entram como linhas
+        # NOVAS, e as existentes não são tocadas. É o caminho de "as
+        # plataformas rápidas fecharam o alvo, dá para ir além" sem invalidar
+        # o pré-registro do que já foi coletado. A extensão fica registrada
+        # no próprio plano, com data e tamanhos.
+        ja_no_plano = {c["perfil_id"] for c in plano_anterior.get("conversas", ())}
+        faltam = [pr for pr in profiles if pr.id not in ja_no_plano]
+        if not faltam:
+            print(f"[conjoint] reusando plano de coleta de {path}")
+        else:
+            novas = [_entrada(pl, pr, e) for pl in plano_anterior["platforms"]
+                     for pr in faltam for e in plano_anterior["eixos"]]
+            plano_novo = dict(plano_anterior)
+            plano_novo["conversas"] = list(plano_anterior["conversas"]) + novas
+            plano_novo.setdefault("extensoes", []).append({
+                "em": _now_iso(),
+                "perfis_antes": len(ja_no_plano),
+                "perfis_depois": len(ja_no_plano) + len(faltam),
+                "conversas_acrescentadas": len(novas),
+                "novos_perfis": [pr.id for pr in faltam],
+            })
+            _save_json(path, plano_novo)
+            print(f"[conjoint] plano ESTENDIDO: +{len(faltam)} perfis, "
+                  f"+{len(novas)} conversas planejadas "
+                  f"({len(ja_no_plano)} -> {len(ja_no_plano)+len(faltam)} "
+                  f"perfis). As linhas anteriores não foram tocadas.")
+    if not path.exists():
         conversas = []
         for pl in platforms:
             for prof in profiles:
                 for e in eixos:
-                    inst = get_instrumento(e)
-                    rot = roteiros.get(e, {}).get(prof.id, ())
-                    cob = instrument.resumo_cobertura(inst, rot) if inst else {}
-                    fmt = instrument.resumo_formato(rot)
-                    flags = temas_plan.get(e, {}).get(prof.id, {}) or {}
-                    cor = corridas_plan.get(e, {}).get(prof.id)
-                    conversas.append({
-                        "conversation_id": f"{pl}_{prof.id}_{e}",
-                        "platform": pl, "perfil_id": prof.id, "eixo": e,
-                        "alternativas": [
-                            a.key for t in rot for a in t.alternativas
-                        ],
-                        "temas_flags": flags,
-                        "temas_incluidos": [c for c, v in flags.items() if v],
-                        "cobertura_temas": cob,
-                        "corrida": cor.to_dict() if cor else None,
-                        **fmt,
-                    })
+                    conversas.append(_entrada(pl, prof, e))
         _save_json(path, {
             "seed": seed, "n_turns": n_turns,
             "tema_prob": tema_prob, "min_temas": min_temas,

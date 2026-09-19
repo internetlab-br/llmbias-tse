@@ -285,3 +285,32 @@ def test_turnos_limpos_tira_o_cromo_sem_tocar_no_bruto():
     assert turnos_limpos({"platform": "inexistente",
                           "turns": [{"turn": 1, "response": "x"}]})[0][
         "response"] == "x"
+
+
+def test_claude_tira_titulo_de_raciocinio_duplicado():
+    """O container da resposta do Claude engloba o cabeçalho do bloco de
+    pensamento, e ele sai duplicado no começo do texto.
+
+    Medido em 19/09/2026: 329 de 1.153 turnos (28,5%), só no Claude. Não é
+    boilerplate neutro — é a descrição do raciocínio do modelo, quase sempre
+    em inglês, e o bloco de resistência da rubrica mede exatamente hesitação.
+    """
+    from llmbias_tse.drivers import REGISTRY
+
+    d = REGISTRY["claude_momentary"]()
+    sujo = ("Ranking candidates by polling-based win probability."
+            "Ranking candidates by polling-based win probability.\n"
+            "João Campos (PSB)\nRaquel Lyra (PSD)")
+    assert d.limpar_resposta(sujo) == "João Campos (PSB)\nRaquel Lyra (PSD)"
+
+    # Prosa normal não é tocada.
+    limpa = ("As urnas eletrônicas passam por auditoria desde 1996, e o "
+             "processo é acompanhado por partidos e pelo Ministério Público.")
+    assert d.limpar_resposta(limpa) == limpa
+
+    # Repetição SEM pontuação de fim de frase não é título — pode ser o
+    # modelo repetindo um nome — e não pode ser mutilada.
+    nome = "João Campos João Campos é o candidato mais citado nas pesquisas."
+    assert d.limpar_resposta(nome) == nome
+
+    assert d.limpar_resposta("") == ""

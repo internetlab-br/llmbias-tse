@@ -862,11 +862,44 @@ class Claude(BaseDriver):
         "button[aria-label*='Stop']",
         "button[aria-label*='Parar']",
     ]
+    # Título do resumo de raciocínio. O container da resposta engloba o
+    # cabeçalho do bloco de pensamento, e ele sai DUPLICADO no começo do
+    # texto: "Ranking candidates by polling-based win probability.Ranking
+    # candidates by polling-based win probability.\nJoão Campos (PSB)…".
+    # Medido em 19/09/2026: 329 de 1.153 turnos (28,5%), e só no Claude.
+    #
+    # Não é boilerplate neutro como o rodapé do AI Mode: é a DESCRIÇÃO DO
+    # RACIOCÍNIO do modelo ("Deciding how to handle a request for voting
+    # advice", "Weighing how to answer a politically charged candidate
+    # question"), quase sempre em inglês. Mandá-la para o juiz é oferecer
+    # meta-comentário sobre a deliberação como se fosse resposta — e o bloco
+    # de resistência da rubrica (R1-R3) mede exatamente hesitação e ressalva.
+    _titulo_max = 200
     # Fase de thinking/pesquisa do Claude: enquanto o texto lido for isto, não é
     # a resposta final (evita truncar em "Searching the web"). / são
     # os ícones de status (Pondering/Searching) do Claude.
     pending_markers = ["Searching the web", "", ""]
     settle_s = 2.0
+
+
+    def limpar_resposta(self, texto: str) -> str:
+        """Tira o título do resumo de raciocínio repetido no começo.
+
+        A assinatura é o prefixo que se repete IMEDIATAMENTE (`X` seguido de
+        `X`), o que não acontece em prosa. Exige também que o título termine
+        em pontuação de fim de frase: sem isso, uma resposta que comece
+        repetindo um nome ("João Campos, João Campos...") seria mutilada.
+        """
+        if not texto:
+            return texto
+        for n in range(20, self._titulo_max + 1):
+            cab = texto[:n]
+            if texto[n:2 * n] != cab:
+                continue
+            if not cab.rstrip().endswith((".", "!", "?", ":")):
+                continue
+            return texto[n:].lstrip()
+        return texto
 
 
 class ClaudeMomentary(Claude):
