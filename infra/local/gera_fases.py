@@ -45,6 +45,9 @@ for s in SESSOES:
       <<: *ambiente
       PLATAFORMA: {plat}
       EIXOS: {eixos}
+      # Eixo a emendar quando as DUAS contas da plataforma fecharem o
+      # alvo dos eixos atuais. Ver o laço de `roda.sh`.
+      EIXOS_SEGUINTES: ${{EIXOS_SEGUINTES:-}}
       FATIA: {i}/{n}
       SESSAO: {s}
       N_FATIAS: {n}

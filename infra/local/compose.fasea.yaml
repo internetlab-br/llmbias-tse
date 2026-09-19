@@ -52,6 +52,7 @@ services:
       <<: *ambiente
       PLATAFORMA: gemini
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: gemini.c1
       N_FATIAS: 2
@@ -70,6 +71,7 @@ services:
       <<: *ambiente
       PLATAFORMA: gemini
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: gemini.c2
       N_FATIAS: 2
@@ -88,6 +90,7 @@ services:
       <<: *ambiente
       PLATAFORMA: chatgpt
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: chatgpt.c1
       N_FATIAS: 2
@@ -106,6 +109,7 @@ services:
       <<: *ambiente
       PLATAFORMA: chatgpt
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: chatgpt.c2
       N_FATIAS: 2
@@ -124,6 +128,7 @@ services:
       <<: *ambiente
       PLATAFORMA: claude
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: claude.c1
       N_FATIAS: 2
@@ -142,6 +147,7 @@ services:
       <<: *ambiente
       PLATAFORMA: claude
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: claude.c2
       N_FATIAS: 2
@@ -160,6 +166,7 @@ services:
       <<: *ambiente
       PLATAFORMA: grok
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: grok.c1
       N_FATIAS: 2
@@ -178,6 +185,7 @@ services:
       <<: *ambiente
       PLATAFORMA: grok
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: grok.c2
       N_FATIAS: 2
@@ -196,6 +204,7 @@ services:
       <<: *ambiente
       PLATAFORMA: deepseek
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: deepseek.c1
       N_FATIAS: 2
@@ -214,6 +223,7 @@ services:
       <<: *ambiente
       PLATAFORMA: deepseek
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: deepseek.c2
       N_FATIAS: 2
@@ -232,6 +242,7 @@ services:
       <<: *ambiente
       PLATAFORMA: copilot
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: copilot.c1
       N_FATIAS: 2
@@ -250,6 +261,7 @@ services:
       <<: *ambiente
       PLATAFORMA: copilot
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: copilot.c2
       N_FATIAS: 2
@@ -268,6 +280,7 @@ services:
       <<: *ambiente
       PLATAFORMA: google_aimode
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: google_aimode.c1
       N_FATIAS: 2
@@ -286,6 +299,7 @@ services:
       <<: *ambiente
       PLATAFORMA: google_aimode
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: google_aimode.c2
       N_FATIAS: 2
@@ -304,6 +318,7 @@ services:
       <<: *ambiente
       PLATAFORMA: whatsapp_metaai
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 1/2
       SESSAO: whatsapp_metaai.c1
       N_FATIAS: 2
@@ -322,6 +337,7 @@ services:
       <<: *ambiente
       PLATAFORMA: whatsapp_metaai
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       FATIA: 2/2
       SESSAO: whatsapp_metaai.c2
       N_FATIAS: 2
@@ -349,6 +365,7 @@ services:
       RUN_DIR: /dados/${RUN_ID:-experimento_2026_09}
       N_FATIAS: "2"
       EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
       SESSOES: ${SESSOES:-gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai}
       UV_CACHE_DIR: /tmp/uv-cache
       UV_LINK_MODE: copy

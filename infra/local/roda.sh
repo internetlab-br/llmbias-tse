@@ -11,6 +11,11 @@ PLATAFORMA="${PLATAFORMA:?}"
 RUN_ID="${RUN_ID:-experimento_2026_09}"
 DADOS="${DADOS:-/dados}"
 EIXOS="${EIXOS:-voto genero integridade}"
+# Eixos a rodar DEPOIS que os atuais fecharem, em ordem. A fase 2 usa
+# `EIXOS="voto integridade"` e `EIXOS_SEGUINTES="genero"`: cada plataforma
+# emenda o gênero assim que as DUAS contas fecham o alvo dos primeiros, em
+# vez de esperar a rodada inteira. Vazio = encerra ao atingir o alvo.
+EIXOS_SEGUINTES="${EIXOS_SEGUINTES:-}"
 LOTE="${LOTE:-20}"
 TURN_DELAY="${TURN_DELAY:-5}"
 CONV_DELAY="${CONV_DELAY:-12}"
@@ -123,6 +128,20 @@ alvo() {
       | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
 }
 
+# Sem --fatia: o progresso da PLATAFORMA (as duas contas somadas). É o que
+# decide se dá para emendar o próximo eixo — a instrução é avançar quando as
+# DUAS máquinas da plataforma fecharem, não quando uma delas fechar.
+plat_completas() {
+  "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
+      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      | grep -oP '^COMPLETAS=\K[0-9]+'
+}
+plat_alvo() {
+  "$PY_VENV" infra/local/progresso.py "$PLATAFORMA" \
+      --run-dir "$RUN_DIR" --eixos $EIXOS 2>/dev/null \
+      | grep -oP '^COMPLETAS=[0-9]+ ALVO=\K[0-9]+'
+}
+
 # PRESERVA o estado: o runner sobe junto com o container, e forçar "rodando"
 # aqui faria uma estação parada de propósito (esperando login, conta trocada,
 # alvo atingido) voltar a coletar sozinha a cada reinício. Só declara os eixos
@@ -141,8 +160,37 @@ while true; do
     parado)         bater; sleep 15; continue ;;
   esac
 
+  # Minha fatia já fechou? Então não há lote a rodar — o que resta é decidir
+  # entre avançar de eixo, esperar a conta irmã, ou encerrar. Feito ANTES do
+  # lote porque rodar um lote vazio é o que fazia a estação pronta acumular
+  # "lotes sem progresso" e gritar por humano.
+  FEITAS="$(completas)"; FEITAS="${FEITAS:-0}"
+  META="$(alvo)"; META="${META:-0}"
+  if [ "$META" -gt 0 ] && [ "$FEITAS" -ge "$META" ]; then
+    PFEITAS="$(plat_completas)"; PFEITAS="${PFEITAS:-0}"
+    PMETA="$(plat_alvo)"; PMETA="${PMETA:-0}"
+    if [ "$PMETA" -gt 0 ] && [ "$PFEITAS" -lt "$PMETA" ]; then
+      marcar rodando "fatia concluída (${FEITAS}/${META}); aguardando a outra conta da plataforma (${PFEITAS}/${PMETA})"
+      dormir_batendo 300
+      continue
+    fi
+    if [ -n "$EIXOS_SEGUINTES" ]; then
+      PROXIMO="${EIXOS_SEGUINTES%% *}"
+      if [ "$PROXIMO" = "$EIXOS_SEGUINTES" ]; then RESTO=""; else RESTO="${EIXOS_SEGUINTES#* }"; fi
+      evento eixo_avancou info "de [$EIXOS] para [$PROXIMO]"
+      EIXOS="$PROXIMO"
+      EIXOS_SEGUINTES="$RESTO"
+      SEM_PROGRESSO=0
+      marcar rodando "avançou para o eixo $EIXOS"
+      continue
+    fi
+    marcar parado "alvo atingido (${FEITAS}/${META})"
+    evento coleta_encerrada info "alvo atingido: ${FEITAS}/${META}"
+    exit 0
+  fi
+
   bater  # batimento fresco antes de um lote que pode levar horas
-  ANTES="$(completas)"; ANTES="${ANTES:-0}"
+  ANTES="$FEITAS"
   uv run python -m llmbias_tse conjoint \
       --run-id "$RUN_ID" --platforms "$PLATAFORMA" --eixos $EIXOS \
       --phase generate --per-platform-limit "$LOTE" \
@@ -155,12 +203,8 @@ while true; do
   # `precisa_humano` — alarme falso que, com 24 sessões, afoga o painel e
   # esconde os alarmes de verdade. (Visto no smoke de 17/09: o WhatsApp
   # apareceu "com erro" em 3/3.)
-  ALVO_ATUAL="$(alvo)"; ALVO_ATUAL="${ALVO_ATUAL:-0}"
-  if [ "$ALVO_ATUAL" -gt 0 ] && [ "$DEPOIS" -ge "$ALVO_ATUAL" ]; then
-    marcar parado "alvo atingido (${DEPOIS}/${ALVO_ATUAL})"
-    evento coleta_encerrada info "alvo atingido: ${DEPOIS}/${ALVO_ATUAL}"
-    exit 0
-  fi
+  # O alvo é conferido no TOPO do laço, junto com a decisão de avançar de
+  # eixo; aqui basta seguir para a contagem de progresso.
 
   if [ "$DEPOIS" -le "$ANTES" ]; then
     SEM_PROGRESSO=$((SEM_PROGRESSO + 1))
