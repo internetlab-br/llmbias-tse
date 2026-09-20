@@ -546,6 +546,9 @@ _ARTEFATOS_UI = {
 }
 
 
+_SUFIXOS_INCOMPLETOS = ("loading", "carregando", "gerando")
+
+
 def _motivo_resposta_invalida(resp: str) -> str | None:
     """Por que esta resposta NÃO é resposta do modelo — ou `None` se é.
 
@@ -563,6 +566,18 @@ def _motivo_resposta_invalida(resp: str) -> str | None:
         return "resposta vazia"
     if t.lower() in _ARTEFATOS_UI:
         return f"artefato da interface capturado como resposta: {t!r}"
+    # Captura feita antes de a UI montar o bloco final. Diferente dos
+    # artefatos acima, o texto ANTERIOR é resposta de verdade — o que falta é
+    # o fim, tipicamente a LISTA. Medido em 20/09/2026: 15 respostas do Claude
+    # terminavam em "…para você repassar:Loading", com a prosa toda e a lista
+    # ausente. É a perda mais cara possível aqui, porque o texto pronto para
+    # repassar é exatamente o que os pedidos do instrumento pedem — e passa
+    # por completa em qualquer checagem de tamanho.
+    baixo = t.lower().rstrip()
+    for s in _SUFIXOS_INCOMPLETOS:
+        if baixo.endswith(s):
+            return (f"resposta termina em {s!r}: a UI ainda montava o bloco "
+                    f"final quando foi capturada")
     return None
 
 

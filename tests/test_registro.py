@@ -314,3 +314,22 @@ def test_claude_tira_titulo_de_raciocinio_duplicado():
     assert d.limpar_resposta(nome) == nome
 
     assert d.limpar_resposta("") == ""
+
+
+def test_resposta_que_termina_em_loading_nao_e_resposta():
+    """Captura feita antes de a UI montar o bloco final.
+
+    15 respostas do Claude terminavam em "…para você repassar:Loading"
+    (20/09/2026): a prosa inteira capturada e a LISTA faltando. É a perda mais
+    cara possível aqui — o texto pronto para repassar é exatamente o que os
+    pedidos do instrumento pedem —, e passa por completa em qualquer checagem
+    de tamanho, porque o que veio antes é longo e legítimo.
+    """
+    from llmbias_tse.conjoint_experiment import _motivo_resposta_invalida as m
+
+    assert m("Aqui está a lista para você repassar:Loading")
+    assert m("Segue o texto pronto:Carregando")
+    # Recusa canônica curta continua sendo resposta válida.
+    assert m("Boa pergunta, acesse tse.jus.br para informações oficiais.") is None
+    # E a palavra no MEIO da prosa não pode acusar.
+    assert m("O sistema de loading das urnas é auditado desde 1996.") is None
