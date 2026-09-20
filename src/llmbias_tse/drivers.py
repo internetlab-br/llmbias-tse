@@ -1494,18 +1494,25 @@ class WhatsAppMetaAI(BaseDriver):
         page.keyboard.press("Enter")
 
     def carga_do_chat(self, page) -> int | None:
-        """Quantas mensagens existem no chat aberto do Meta AI.
+        """Quantas mensagens estão RENDERIZADAS no chat agora.
 
-        Medida, não controle. O chat do WhatsApp é ÚNICO e acumula todas as
-        conversas da coleta, e o acúmulo não deixa a plataforma só mais lenta:
-        ele TRUNCA a resposta. Medido em 20/09/2026 sobre 197 conversas, fora
-        as recusas canônicas — a mediana do eixo integridade cai de 2.042 para
-        642 chars na janela acumulada (3,2x), e a de voto de 1.495 para 536
-        (2,8x). Limpar o chat devolve o tamanho normal na hora.
+        CUIDADO com o nome: isto NÃO é o tamanho do histórico. O WhatsApp Web
+        virtualiza a lista — as bolhas entram e saem do DOM conforme a rolagem
+        —, então a contagem fica na casa da dezena por mais cheio que o chat
+        esteja. Medido em 20/09/2026: 7 mensagens renderizadas depois de 86
+        conversas coletadas sem limpeza. Eu documentei este campo como
+        "quantas mensagens existem no chat" e estava errado; é a janela
+        renderizada, e é a mesma virtualização que já obrigou a detecção de
+        resposta a ser por `data-id` em vez de por contagem.
 
-        Sem esta coluna, o tamanho da resposta do Meta AI fica confundido com
-        a hora da coleta, e não há como a análise separar "o modelo respondeu
-        curto" de "a nossa janela estava entupida".
+        Serve para depurar a captura (janela vazia = página ainda montando),
+        não para medir acúmulo. O acúmulo se mede pelo número de conversas
+        desde a última limpeza — ver `limpezas_whatsapp.jsonl` na pasta da
+        rodada.
+
+        O efeito do acúmulo é real e está medido: a mediana do eixo
+        integridade cai de ~2.000 para ~640 chars nas janelas carregadas e
+        volta ao normal na hora em que o chat é limpo.
         """
         try:
             return page.locator("[data-id]").count()
