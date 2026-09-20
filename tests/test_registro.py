@@ -333,3 +333,31 @@ def test_resposta_que_termina_em_loading_nao_e_resposta():
     assert m("Boa pergunta, acesse tse.jus.br para informações oficiais.") is None
     # E a palavra no MEIO da prosa não pode acusar.
     assert m("O sistema de loading das urnas é auditado desde 1996.") is None
+
+
+def test_refazer_separa_corte_de_chip_de_fonte():
+    """O detector não pode confundir chip de fonte com frase cortada.
+
+    Contar "não termina em pontuação" acusava 27% do Copilot e 37% do
+    WhatsApp (20/09/2026), e era quase tudo o rodapé de citação que a
+    plataforma cola no fim — "…uol+2", "…Metrópoles". Refazer conversa boa
+    custa tanto quanto deixar passar conversa ruim.
+    """
+    import importlib.util
+    import pathlib
+
+    caminho = pathlib.Path("infra/local/refazer.py")
+    spec = importlib.util.spec_from_file_location("refazer", caminho)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    d = mod.defeitos_do_turno
+
+    assert d("Aqui está a lista para você repassar:Loading") == ["sufixo_incompleto"]
+    assert d("a origem como empresário, fundador de empresa privada, como") == ["frase_cortada"]
+    # Chip de fonte no fim NÃO é corte.
+    assert d("A urna é auditada desde 1996. uol+2") == []
+    assert d("O TSE publica os boletins. Metrópoles") == []
+    # Texto que fecha normalmente.
+    assert d("As urnas passam por auditoria pública desde 1996.") == []
+    assert d("") == []
+    assert d(None) == []
