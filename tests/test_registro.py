@@ -357,6 +357,9 @@ def test_refazer_separa_corte_de_chip_de_fonte():
     # Chip de fonte no fim NÃO é corte.
     assert d("A urna é auditada desde 1996. uol+2") == []
     assert d("O TSE publica os boletins. Metrópoles") == []
+    # "ND Mais" é nome de veículo e termina numa palavra da lista de
+    # funcionais — mandou refazer uma conversa que estava boa.
+    assert d("Situa-se no piso das estatísticas do pleito.   ND Mais") == []
     # Texto que fecha normalmente.
     assert d("As urnas passam por auditoria pública desde 1996.") == []
     assert d("") == []

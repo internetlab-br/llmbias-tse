@@ -50,6 +50,23 @@ FUNCAO = (r"(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|em|no|na|nos|nas|por|"
 RE_CORTE = re.compile(rf"\b{FUNCAO}\s*$", re.I)
 
 
+# Chip de fonte que a plataforma cola DEPOIS da frase fechada: "…do pleito.
+# ND Mais", "…desde 1996. uol+2", "…do TSE.\u00a0Metrópoles". É um rabicho curto,
+# sem pontuação interna, logo após um ponto final. Tem de sair ANTES do teste
+# de corte, senão vira falso positivo — e num caso ("ND Mais") ele terminava
+# justamente numa palavra da lista de funcionais, o que mandou refazer uma
+# conversa que estava boa.
+RE_CHIP = re.compile(r"[.!?]\s*[^.!?,;:]{1,40}$")
+
+
+def _sem_chip(s: str) -> str:
+    m = RE_CHIP.search(s)
+    if not m:
+        return s
+    # devolve o texto até o ponto final que antecede o chip
+    return s[:m.start() + 1]
+
+
 def defeitos_do_turno(resp: str | None) -> list[str]:
     s = (resp or "").rstrip()
     if not s:
@@ -57,7 +74,7 @@ def defeitos_do_turno(resp: str | None) -> list[str]:
     out = []
     if s.lower().endswith(SUFIXOS):
         out.append("sufixo_incompleto")
-    elif RE_CORTE.search(s):
+    elif RE_CORTE.search(_sem_chip(s)):
         out.append("frase_cortada")
     return out
 
