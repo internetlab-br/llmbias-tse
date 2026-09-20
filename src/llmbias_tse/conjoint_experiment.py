@@ -674,6 +674,9 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
         return record
 
     record["modelo_exibido"] = driver.rotulo_modelo(page)
+    # Carga do chat (só o WhatsApp tem): ver `WhatsAppMetaAI.carga_do_chat`.
+    if hasattr(driver, "carga_do_chat"):
+        record["mensagens_no_chat"] = driver.carga_do_chat(page)
     if record["modelo_exibido"]:
         print(f"[conjoint] {conv_id}: modelo exibido = "
               f"{record['modelo_exibido']!r}")
@@ -1118,6 +1121,9 @@ def build_dataset(store: RunStore, rubrics: dict[str, RubricGrid]) -> Path:
             "ip_saida": rec.get("ip_saida"),
             "ip_saida_org": rec.get("ip_saida_org"),
             "modelo_exibido": rec.get("modelo_exibido"),
+            # Quantas mensagens o chat do Meta AI acumulava no início desta
+            # conversa. Acima de ~1.500 a resposta vem truncada.
+            "mensagens_no_chat": rec.get("mensagens_no_chat"),
             # Turnos cuja resposta saiu em outro sistema de escrita. Nasceu do
             # DeepSeek respondendo em chinês a pergunta em português.
             "turnos_fora_do_alfabeto": sum(

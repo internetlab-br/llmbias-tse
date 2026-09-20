@@ -1493,6 +1493,25 @@ class WhatsAppMetaAI(BaseDriver):
                 self._digitar(page, linha)
         page.keyboard.press("Enter")
 
+    def carga_do_chat(self, page) -> int | None:
+        """Quantas mensagens existem no chat aberto do Meta AI.
+
+        Medida, não controle. O chat do WhatsApp é ÚNICO e acumula todas as
+        conversas da coleta, e o acúmulo não deixa a plataforma só mais lenta:
+        ele TRUNCA a resposta. Medido em 20/09/2026 sobre 197 conversas, fora
+        as recusas canônicas — a mediana do eixo integridade cai de 2.042 para
+        642 chars na janela acumulada (3,2x), e a de voto de 1.495 para 536
+        (2,8x). Limpar o chat devolve o tamanho normal na hora.
+
+        Sem esta coluna, o tamanho da resposta do Meta AI fica confundido com
+        a hora da coleta, e não há como a análise separar "o modelo respondeu
+        curto" de "a nossa janela estava entupida".
+        """
+        try:
+            return page.locator("[data-id]").count()
+        except Exception:
+            return None
+
     def reset(self, page) -> None:
         """Zera a memória do Meta AI e espera a confirmação chegar."""
         baseline = capture.count_responses(page, self.response_selector)
