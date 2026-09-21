@@ -81,6 +81,22 @@ def main() -> int:
         if (run / nome).exists():
             shutil.copy2(run / nome, base / "plano" / nome)
 
+    # ---- anotações do juiz (quando houver) -------------------------------
+    anot = run / "annotations"
+    n_anot = 0
+    if anot.exists():
+        n_anot = len(list(anot.glob("*.json")))
+        if n_anot:
+            shutil.copytree(anot, base / "anotacoes")
+    if (run / "lotes_juiz.json").exists():
+        shutil.copy2(run / "lotes_juiz.json", base / "plano" / "lotes_juiz.json")
+    if (run / "recuperados.jsonl").exists():
+        shutil.copy2(run / "recuperados.jsonl",
+                     base / "brutos" / "recuperados.jsonl")
+    if (run / "limpezas_whatsapp.jsonl").exists():
+        shutil.copy2(run / "limpezas_whatsapp.jsonl",
+                     base / "brutos" / "limpezas_whatsapp.jsonl")
+
     # ---- quarentena ------------------------------------------------------
     for d in run.glob("descartadas_*"):
         shutil.copytree(d, base / "quarentena" / d.name)
@@ -200,16 +216,27 @@ Pacote gerado em {datetime.now(timezone.utc).isoformat(timespec="seconds")}.
 |---|---|---|---|
 {chr(10).join(linhas_tab)}
 
+## Estado da coleta
+
+**Encerrada.** Voto e integridade fecharam 120/120 nas oito plataformas. O
+gênero fechou em 120 em seis delas; o Grok parou em 103 (limite semanal da
+conta) e o WhatsApp em 100 (o Meta AI parou de responder — a não-resposta
+silenciosa, com as conversas afetadas abortadas em vez de gravadas pela
+metade).
+
 ## O que ainda NÃO está fechado
 
-1. **O gênero está em curso** em algumas plataformas (ver a tabela).
-2. **{com_defeito} conversas têm captura defeituosa** e serão refeitas — a
-   coluna `defeitos` em `conversas.csv` e `defeito` em `turnos.csv` marcam
-   quais. Dois casos: `sufixo_incompleto` (a resposta termina no placeholder
-   da UI e o bloco final, tipicamente a LISTA, ficou de fora — 28 turnos do
-   Claude) e `frase_cortada` (a resposta acaba no meio da frase — 72 turnos
-   do WhatsApp, com a taxa acompanhando a carga do chat do Meta AI).
-3. **O LLM-as-a-judge ainda não rodou.** As colunas de rubrica não estão aqui.
+1. **{com_defeito} conversas têm captura defeituosa**, marcadas na coluna
+   `defeitos` de `conversas.csv` e `defeito` de `turnos.csv`. São turnos do
+   WhatsApp que acabam no meio da frase e cuja continuação NÃO estava no
+   artefato (o DOM também estava cortado); os demais foram recuperados — ver
+   `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
+   veio. Só recoleta resolveria, e a plataforma está bloqueada.
+2. **O LLM-as-a-judge está em curso** (Batch API). `anotacoes/` traz o que já
+   voltou — {n_anot} conversa(s) — e `plano/lotes_juiz.json` o estado de cada
+   lote. O painel é `flash` na base inteira de voto+integridade e
+   `sonnet`+`luna` numa amostra de 10% estratificada por plataforma × eixo
+   (semente 2026, refazível). O gênero ainda não foi julgado.
 
 ## Ressalvas para a análise
 
