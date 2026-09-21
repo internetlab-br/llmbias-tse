@@ -1485,6 +1485,11 @@ class WhatsAppMetaAI(BaseDriver):
     # filtro de "mensagem recebida". Se capturados, viram resposta falsa
     # (gravada com ok=True, 8 chars) — 21% dos turnos da coleta de ago/2026
     # até isto ser corrigido. Ignorá-los faz o laço CONTINUAR esperando.
+    # Quanto tempo o texto precisa ficar parado para a resposta ser dada por
+    # pronta. Eram 3 s, curtos demais para uma plataforma cujo turno leva 100 s
+    # e cujo balão cresce em blocos: bastava uma pausa de 3 s no meio para a
+    # captura fechar cedo. Ver a nota em `submit`.
+    _estabilidade_s = 8.0
     _placeholders = {"Thinking", "Typing…", "Typing...",
                      "Digitando…", "Digitando..."}
 
@@ -1685,20 +1690,25 @@ class WhatsAppMetaAI(BaseDriver):
                 pass
             self._scroll_to_bottom(page)  # mantém os balões novos renderizados
             msgs = self._incoming_msgs(page)
-            # balão recebido mais recente cujo id NÃO existia antes do envio
-            newmsg = None
-            for m in reversed(msgs):
-                if (m["id"] and m["id"] not in before
-                        and (m["t"] or "").strip() not in self._placeholders):
-                    newmsg = m
-                    break
-            t = newmsg["t"] if (newmsg and newmsg["t"]) else ""
+            # TODOS os balões cujo id não existia antes do envio, na ordem em
+            # que estão na tela — não só o último.
+            #
+            # Pegar só o último perdia resposta: o texto gravado terminava em
+            # "…para 25 de" e o artefato mostrava "outubro. Você pode
+            # acompanhar…" logo adiante. 50 turnos assim em 20/09/2026, com
+            # mediana de 136 chars perdidos. Duas causas somadas: o Meta AI
+            # às vezes parte a resposta em mais de um balão, e o balão em si
+            # ainda cresce depois de aparecer.
+            novos = [m for m in msgs
+                     if m["id"] and m["id"] not in before
+                     and (m["t"] or "").strip() not in self._placeholders]
+            t = "\n".join(m["t"] for m in novos if m["t"]).strip()
             if t:
                 saw_new = True
                 if t == last_text:
                     if since is None:
                         since = time.time()
-                    elif time.time() - since >= 3.0:
+                    elif time.time() - since >= self._estabilidade_s:
                         break
                 else:
                     since = None
