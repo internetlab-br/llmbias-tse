@@ -457,9 +457,16 @@ def _achado_eh_violacao(voz: list[str]) -> bool:
 
 
 def annotate(conversation: dict, rubric: RubricGrid, *,
-             model: str | None = None, juiz=None) -> dict:
+             model: str | None = None, juiz=None,
+             pronto: dict | None = None) -> dict:
     """Anota uma conversa: extrai achados de cada resposta do assistente e
-    agrega contagens descritivas (sem escore somado)."""
+    agrega contagens descritivas (sem escore somado).
+
+    `pronto` é `{turno: Extracao}` de extrações JÁ FEITAS — o caminho do
+    julgamento em lote. A agregação é a mesma nos dois modos de propósito:
+    duplicá-la garantiria que síncrono e lote divergissem na primeira mudança
+    de rubrica.
+    """
     # Turnos LIMPOS: o registro em disco é o bruto do que a página
     # devolveu, e cromo de interface não pode entrar no prompt do
     # juiz. Ver `storage.turnos_limpos`.
@@ -488,6 +495,16 @@ def annotate(conversation: dict, rubric: RubricGrid, *,
     def _extrai(par):
         i, t = par
         try:
+            # `pronto` permite ANOTAR a partir de extrações já feitas — é como
+            # o julgamento em LOTE entra aqui. Sem isso a agregação existiria
+            # duas vezes, uma no modo síncrono e outra no lote, e as duas
+            # divergiriam na primeira mudança de rubrica.
+            if pronto is not None:
+                ext = pronto.get(t.get("turn"))
+                if ext is None:
+                    raise KeyError(
+                        f"turno {t.get('turn')} sem resultado no lote")
+                return i, t, ext, None
             return i, t, annotate_turn(
                 rubric, _format_prev(turns, i), t.get("prompt", ""),
                 (t.get("response") or "").strip(), model=model, juiz=juiz,
@@ -495,7 +512,9 @@ def annotate(conversation: dict, rubric: RubricGrid, *,
         except Exception as e:  # noqa: BLE001
             return i, t, None, e
 
-    if workers > 1 and len(avaliaveis) > 1:
+    if pronto is not None:
+        resultados = [_extrai(par) for par in avaliaveis]
+    elif workers > 1 and len(avaliaveis) > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             resultados = list(pool.map(_extrai, avaliaveis))
     else:
@@ -659,7 +678,8 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
 # --------------------------------------------------------------------------
 
 def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
-                   *, model: str | None = None, modo: str = "turno") -> dict:
+                   *, model: str | None = None, modo: str = "turno",
+                   prontos: dict | None = None) -> dict:
     """Anota a conversa com CADA juiz do painel e guarda os três resultados.
 
     Deliberadamente NÃO decide a regra de agregação (maioria, união, …): guarda
@@ -673,6 +693,23 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
     funcionando sem mudança.
     """
     fn = annotate_conversa if modo == "conversa" else annotate
+
+    # `prontos` é `{juiz: {turno: Extracao}}` do julgamento em LOTE. Com ele
+    # não há chamada a fazer: só agregar. O painel, a concordância e o
+    # `por_tipo` da maioria saem pelo MESMO caminho do modo síncrono.
+    if prontos is not None:
+        por_juiz = {}
+        for j in juizes:
+            pr = prontos.get(j.key)
+            if not pr:
+                por_juiz[j.key] = {"erro": "sem resultados no lote"}
+                continue
+            try:
+                por_juiz[j.key] = annotate(conversation, rubric, juiz=j,
+                                           pronto=pr)
+            except Exception as e:  # noqa: BLE001
+                por_juiz[j.key] = {"erro": repr(e)}
+        return _consolidar_painel(por_juiz, rubric, juizes, modo)
 
     def _um_juiz(j):
         # 6.1: conversa zerada por um juiz é falha, não resultado — reemita a
@@ -703,6 +740,17 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
             k, v = _um_juiz(j)
             por_juiz[k] = v
 
+    return _consolidar_painel(por_juiz, rubric, juizes, modo)
+
+
+def _consolidar_painel(por_juiz: dict, rubric: RubricGrid, juizes,
+                       modo: str) -> dict:
+    """Junta os resultados dos juízes num registro de painel.
+
+    Usada pelos DOIS caminhos — síncrono e lote. A consolidação é onde mora a
+    concordância e o `por_tipo` da maioria; duplicá-la faria os dois modos
+    divergirem na primeira mudança de rubrica.
+    """
     validos = {k: v for k, v in por_juiz.items() if "erro" not in v}
     falhos = sorted(set(por_juiz) - set(validos))
     if falhos:

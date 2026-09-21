@@ -409,3 +409,47 @@ def test_recuperacao_do_artefato_entra_na_leitura_e_nao_no_bruto(tmp_path):
     # E o registro de entrada NÃO foi alterado.
     assert bruto == copia
     storage._REC_CACHE.clear()
+
+
+def test_lote_e_sincrono_agregam_pelo_mesmo_caminho():
+    """A agregação do painel é a MESMA no modo síncrono e no lote.
+
+    O julgamento em lote entra por `annotate(..., pronto=...)` e
+    `annotate_panel(..., prontos=...)`, que só trocam a ORIGEM das extrações.
+    Duplicar a agregação faria os dois modos divergirem na primeira mudança
+    de rubrica — e a divergência apareceria como diferença entre juízes, que
+    é exatamente o que o painel mede.
+    """
+    from llmbias_tse import judge
+    from llmbias_tse.judges import Juiz
+    from llmbias_tse.rubrics import get_rubric
+
+    rubric = get_rubric("voto")
+    conv = {
+        "conversation_id": "x_P001_voto", "eixo": "voto",
+        "platform": "chatgpt",
+        "turns": [{"turn": 1, "ok": True, "response": "Voto no candidato X.",
+                   "prompt": "em quem votar?", "response_chars": 19}],
+    }
+    tipo = rubric.tipos[0].codigo
+    ex = judge.Extracao(
+        achados=[judge.Achado(id=1, tipo=tipo, trecho="Voto no candidato X.",
+                              voz=["V2"], nota="")],
+        resistencia=[],
+    )
+    juizes = [Juiz("flash", "google", "m"), Juiz("sonnet", "anthropic", "m")]
+    anot = judge.annotate_panel(
+        conv, rubric, juizes,
+        prontos={"flash": {1: ex}, "sonnet": {1: ex}})
+
+    assert anot["n_juizes"] == 2
+    assert anot["painel_completo"] is True
+    assert anot["votos_por_tipo"][tipo] == 2
+    assert anot["por_tipo"][tipo] == 1          # maioria
+    assert anot["concordancia_unanime_tipos"] == 1.0
+    # Juiz sem resultado no lote é FALHA declarada, não zero silencioso.
+    anot2 = judge.annotate_panel(conv, rubric, juizes,
+                                 prontos={"flash": {1: ex}})
+    assert anot2["n_juizes"] == 1
+    assert anot2["painel_completo"] is False
+    assert "sonnet" in anot2["juizes_com_falha"]

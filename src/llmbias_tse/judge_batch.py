@@ -145,6 +145,12 @@ def _validar(cid: str, txt: str, juiz_key: str) -> judge.Extracao | None:
 # Submissão
 # --------------------------------------------------------------------------
 
+def _pensamento(juiz: Juiz) -> int:
+    """Orçamento de pensamento do lote — o MESMO do modo síncrono."""
+    from .judges import _orcamento_pensamento
+    return _orcamento_pensamento(juiz)
+
+
 def submeter(juiz: Juiz, itens: list[ItemLote]) -> str:
     if juiz.provider == "anthropic":
         return _submeter_anthropic(juiz, itens)
@@ -178,6 +184,11 @@ def _submeter_google(juiz: Juiz, itens: list[ItemLote]) -> str:
                 response_mime_type="application/json",
                 response_schema=judge.Extracao,
                 max_output_tokens=8192,
+                # Effort baixo também no lote — senão o síncrono e o
+                # assíncrono julgariam com configuração diferente e os
+                # resultados deixariam de ser comparáveis.
+                thinking_config=T.ThinkingConfig(
+                    thinking_budget=_pensamento(juiz)),
             ),
         }
         for it in itens
@@ -194,7 +205,9 @@ def _submeter_anthropic(juiz: Juiz, itens: list[ItemLote]) -> str:
             "params": {
                 "model": juiz.model,
                 "max_tokens": 16000,
-                "thinking": {"type": "adaptive"},
+                # Sem `thinking` quando o effort é baixo (ver `judges`).
+                **({"thinking": {"type": "adaptive"}}
+                   if _pensamento(juiz) else {}),
                 "output_config": {
                     "effort": juiz.effort,
                     "format": {
