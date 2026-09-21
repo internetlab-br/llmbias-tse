@@ -96,7 +96,12 @@ def main() -> int:
             continue
         if args.eixos and d["eixo"] not in args.eixos:
             continue
-        ts = d.get("turns") or []
+        # Lê pelos turnos LIMPOS: eles já trazem a continuação recuperada do
+        # artefato. Sem isto a ferramenta pedia para refazer 50 turnos do
+        # WhatsApp que já estavam corrigidos — a correção mora na camada de
+        # leitura, e quem audita tem de olhar pela mesma janela que o juiz.
+        from llmbias_tse.storage import turnos_limpos
+        ts = turnos_limpos(d)
         if not (ts and all(t.get("ok") for t in ts)):
             continue  # incompleta já será refeita de qualquer jeito
         ruins = collections.Counter()
