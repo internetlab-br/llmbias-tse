@@ -896,11 +896,29 @@ class Claude(BaseDriver):
         """
         page.evaluate(
             """() => {
+              // 1) o fim da conversa
               const alvos = document.querySelectorAll(
                 '[data-is-streaming], main, [role=main]');
               const el = alvos[alvos.length - 1];
               if (el) el.scrollIntoView({block: 'end'});
               window.scrollTo(0, document.body.scrollHeight);
+              // 2) rola o contêiner ROLÁVEL, não a janela. No Claude a
+              //    conversa vive num div com overflow próprio, e
+              //    `window.scrollTo` não mexe nele.
+              document.querySelectorAll('div').forEach(d => {
+                if (d.scrollHeight > d.clientHeight + 50
+                    && d.clientHeight > 200) {
+                  d.scrollTop = d.scrollHeight;
+                }
+              });
+              // 3) e traz o PRÓPRIO esqueleto para a tela. Rolar até o fim
+              //    não basta quando o bloco pendente está no meio da
+              //    resposta: 2 das 11 conversas refeitas voltaram com
+              //    "Loading" mesmo depois da rolagem do passo 1.
+              const esq = document.querySelectorAll('[data-cds="Skeleton"]');
+              if (esq.length) {
+                esq[esq.length - 1].scrollIntoView({block: 'center'});
+              }
             }"""
         )
 
