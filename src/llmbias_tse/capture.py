@@ -464,6 +464,7 @@ def wait_until_idle(
     timeout: float = 240.0,
     poll: float = 0.4,
     pending_markers=(),
+    antes_de_ler=None,
 ) -> str:
     """Espera a geração terminar, com DOIS sinais combinados (o 1º que vier
     vence):
@@ -486,6 +487,17 @@ def wait_until_idle(
     prev = None
     stable_since = None
     while time.time() < deadline:
+        if antes_de_ler is not None:
+            # Gancho por driver, rodado a cada sondagem ANTES da leitura. O
+            # Claude usa para rolar até o fim: ele renderiza por demanda, e a
+            # parte da resposta abaixo da dobra fica como esqueleto
+            # (`data-cds="Skeleton"`, com o texto "Loading") até alguém
+            # chegar lá. Sem rolar, a captura levava a prosa e deixava a
+            # LISTA para trás — 28 turnos em 20/09/2026.
+            try:
+                antes_de_ler(page)
+            except Exception:
+                pass
         busy = any_visible(page, busy_selectors)
         text = last_text(page, read)
         text_s = text.strip()

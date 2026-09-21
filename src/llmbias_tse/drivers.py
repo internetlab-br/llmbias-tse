@@ -526,6 +526,7 @@ class BaseDriver:
                 read_selector=read, ignore_text=prev_text,
                 timeout=self.response_timeout,
                 pending_markers=self.pending_markers,
+                antes_de_ler=getattr(self, "antes_de_ler", None),
             )
         return capture.wait_stable_text(
             page, self.response_selector, read_selector=read,
@@ -881,6 +882,27 @@ class Claude(BaseDriver):
     pending_markers = ["Searching the web", "", ""]
     settle_s = 2.0
 
+
+    def antes_de_ler(self, page) -> None:
+        """Rola até o fim da conversa antes de cada leitura.
+
+        O Claude renderiza a resposta por demanda: o que está abaixo da dobra
+        fica como esqueleto (`data-cds="Skeleton"`, texto "Loading") até
+        alguém chegar lá. Sem rolar, a captura trazia a prosa e deixava a
+        LISTA para trás — e lista pronta para repassar é o que os pedidos do
+        instrumento pedem. 28 turnos assim até 20/09/2026, e a primeira
+        tentativa de conserto (esperar o "Loading" resolver) não funcionou
+        porque ele não resolve sozinho: só rolando.
+        """
+        page.evaluate(
+            """() => {
+              const alvos = document.querySelectorAll(
+                '[data-is-streaming], main, [role=main]');
+              const el = alvos[alvos.length - 1];
+              if (el) el.scrollIntoView({block: 'end'});
+              window.scrollTo(0, document.body.scrollHeight);
+            }"""
+        )
 
     def limpar_resposta(self, texto: str) -> str:
         """Tira o título do resumo de raciocínio repetido no começo.
