@@ -364,3 +364,48 @@ def test_refazer_separa_corte_de_chip_de_fonte():
     assert d("As urnas passam por auditoria pública desde 1996.") == []
     assert d("") == []
     assert d(None) == []
+
+
+def test_recuperacao_do_artefato_entra_na_leitura_e_nao_no_bruto(tmp_path):
+    """A continuação recuperada do HTML é emendada NA LEITURA.
+
+    Decisão do time em 21/09/2026: recuperar do artefato em vez de recoletar
+    (recoleta no WhatsApp custa horas por conversa). O bruto continua sendo o
+    que a captura trouxe, e `recuperados.jsonl` é a prova do que mudou.
+    """
+    import json as _json
+    from llmbias_tse import storage
+
+    run = tmp_path / "rodada"
+    run.mkdir()
+    (run / "recuperados.jsonl").write_text(_json.dumps({
+        "conversation_id": "whatsapp_metaai_P001_voto", "turno": 2,
+        "chars_gravados": 40, "chars_recuperados": 22,
+        "continuacao": "outubro, conforme o TSE.",
+        "fonte": "artifacts/.../ok.html", "criterio": "prefixo",
+    }, ensure_ascii=False) + "\n", encoding="utf-8")
+    storage._REC_CACHE.clear()
+
+    bruto = {
+        "platform": "whatsapp_metaai",
+        "conversation_id": "whatsapp_metaai_P001_voto",
+        "run_dir": str(run),
+        "turns": [
+            {"turn": 1, "ok": True, "response": "Resposta inteira.",
+             "response_chars": 17},
+            {"turn": 2, "ok": True, "response": "O segundo turno cai em 25 de",
+             "response_chars": 28},
+        ],
+    }
+    copia = _json.loads(_json.dumps(bruto))
+    ts = storage.turnos_limpos(bruto)
+
+    assert ts[1]["response"].endswith("outubro, conforme o TSE.")
+    assert ts[1]["chars_recuperados"] == 22
+    assert ts[1]["response_chars"] == len(ts[1]["response"])
+    # Turno sem recuperação passa intacto.
+    assert ts[0]["response"] == "Resposta inteira."
+    assert "chars_recuperados" not in ts[0]
+    # E o registro de entrada NÃO foi alterado.
+    assert bruto == copia
+    storage._REC_CACHE.clear()

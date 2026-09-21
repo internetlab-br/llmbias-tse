@@ -67,6 +67,34 @@ class Exchange:
     n_turns: int | None = None          # total de turnos da conversa
 
 
+_REC_CACHE: dict[str, dict] = {}
+
+
+def _recuperados(run_dir=None) -> dict:
+    """Índice `(conversa, turno) -> recuperação` lido de `recuperados.jsonl`.
+
+    Arquivo opcional; sem ele a leitura segue igual. Existe porque em alguns
+    turnos o texto gravado é um PREFIXO do que a página tinha, e o fim está no
+    HTML do artefato. Recuperar dali foi decisão do time em 21/09/2026 —
+    recoletar no WhatsApp custa horas por conversa.
+    """
+    base = Path(run_dir) if run_dir else DATA_ROOT / "experimento_2026_09"
+    chave = str(base)
+    if chave in _REC_CACHE:
+        return _REC_CACHE[chave]
+    idx: dict = {}
+    f = base / "recuperados.jsonl"
+    if f.exists():
+        for linha in f.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(linha)
+            except Exception:
+                continue
+            idx[(r["conversation_id"], r["turno"])] = r
+    _REC_CACHE[chave] = idx
+    return idx
+
+
 def turnos_limpos(conversation: dict) -> list[dict]:
     """Os turnos da conversa com o cromo de interface removido da resposta.
 
@@ -89,6 +117,7 @@ def turnos_limpos(conversation: dict) -> list[dict]:
     from .drivers import REGISTRY
     from .conjoint_experiment import PLATFORM_DRIVERS
 
+    recuperados = _recuperados(conversation.get("run_dir"))
     plat = conversation.get("platform")
     chave = (PLATFORM_DRIVERS.get(plat) or (plat,))[0]
     driver = REGISTRY.get(chave)
@@ -96,22 +125,36 @@ def turnos_limpos(conversation: dict) -> list[dict]:
     if driver is None:
         return list(turns)
     d = driver()
+    cid = conversation.get("conversation_id")
     saida = []
     for t in turns:
         r = t.get("response")
         if not r:
             saida.append(t)
             continue
-        limpo = d.limpar_resposta(r)
+        # Continuação recuperada do artefato, quando existe (ver
+        # `infra/local/recuperar_artefato.py`). Emendada NA LEITURA, como o
+        # resto: o bruto continua sendo o que a captura trouxe.
+        rec = recuperados.get((cid, t.get("turn")))
+        emendado = r
+        if rec:
+            emendado = r.rstrip() + " " + rec["continuacao"]
+        limpo = d.limpar_resposta(emendado)
         if limpo == r:
-            saida.append(t)
+            saida.append(t)   # nada a fazer neste turno
             continue
         novo = dict(t)
         novo["response"] = limpo
         novo["response_chars"] = len(limpo)
-        # Guarda o que foi tirado: sem isto, "o texto mudou" vira afirmação
-        # sem prova, e a diferença entre o bruto e o lido fica indevassável.
-        novo["chars_cromo_removido"] = len(r) - len(limpo)
+        # Guarda o que entrou e o que saiu: sem isto, "o texto mudou" vira
+        # afirmação sem prova, e a diferença entre o bruto e o lido fica
+        # indevassável. Comparar com `emendado`, e não com `r`, senão a
+        # recuperação aparece como cromo REMOVIDO negativo.
+        cromo = len(emendado) - len(limpo)
+        if cromo:
+            novo["chars_cromo_removido"] = cromo
+        if rec:
+            novo["chars_recuperados"] = rec["chars_recuperados"]
         saida.append(novo)
     return saida
 
