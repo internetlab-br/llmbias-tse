@@ -34,12 +34,35 @@ from llmbias_tse import judge, judge_batch, judges
 from llmbias_tse.rubrics import get_rubric
 from llmbias_tse.storage import turnos_limpos
 
-# Itens por lote, POR PROVEDOR. O limite é por tamanho, não só por contagem:
-# o prompt médio tem 28 mil chars, então 2.000 itens dão ~56 MB num pedido só
-# — acima do que o lote inline do Google aceita. Conservador de propósito: um
-# lote recusado no fim da fila custa a espera inteira.
+# Teto por lote, POR PROVEDOR, em itens E em tokens de entrada. Os dois
+# limites existem e morderam de formas diferentes:
+#
+#  - TAMANHO DO PEDIDO: o prompt médio tem 28 mil chars, então 2.000 itens dão
+#    ~56 MB num pedido só, acima do que o lote inline do Google aceita;
+#  - TOKENS ENFILEIRADOS: a openai recusou o lote de 1.632 itens com
+#    `token_limit_exceeded` — a organização aceita 5 milhões de tokens
+#    enfileirados por modelo, e aquele lote tinha ~12,3 milhões. A recusa foi
+#    limpa (0 completados, nada cobrado), mas custou a fila.
+#
+# Por isso o corte é pelo que vier primeiro. Os tetos de token ficam com folga
+# sobre o limite conhecido, porque a conta por token é estimativa.
 FATIA = {"google": 400, "anthropic": 2000, "openai": 2000}
 FATIA_PADRAO = 400
+TOKENS_MAX = {"openai": 4_000_000, "anthropic": 30_000_000,
+              "google": 30_000_000}
+TOKENS_MAX_PADRAO = 4_000_000
+# Tokens de entrada por turno, medidos por provedor (ver `custo_juiz.py`).
+TOKENS_POR_ITEM = {"flash": 6475, "sonnet": 13351, "luna": 7546}
+
+
+def _fatiar(conjunto, juiz, key):
+    """Fatias que respeitam o teto de itens E o de tokens enfileirados."""
+    max_itens = FATIA.get(juiz.provider, FATIA_PADRAO)
+    max_tok = TOKENS_MAX.get(juiz.provider, TOKENS_MAX_PADRAO)
+    por_item = TOKENS_POR_ITEM.get(key, 8000)
+    por_tok = max(1, max_tok // por_item)
+    tam = min(max_itens, por_tok)
+    return [conjunto[i:i + tam] for i in range(0, len(conjunto), tam)], tam
 
 
 def _carregar(run: Path, eixos):
@@ -86,29 +109,53 @@ def lancar(args) -> int:
              "semente": args.semente, "itens_total": len(itens),
              "itens_amostra": len(amostra), "lotes": []}
     alvo = run / "lotes_juiz.json"
-    if alvo.exists() and not args.forcar:
-        raise SystemExit(
-            f"{alvo} já existe — os lotes desta rodada já foram lançados. "
-            f"Use `estado`/`coletar`, ou --forcar para relançar (paga de novo)."
-        )
+    if alvo.exists():
+        # Relançar só um juiz (`--juizes luna`) preserva o que já está no ar.
+        # É o caso de um provedor ter recusado o lote: o resto da fila não
+        # pode ser jogado fora nem pago de novo.
+        anterior = json.loads(alvo.read_text(encoding="utf-8"))
+        if args.juizes:
+            plano["lotes"] = [L for L in anterior["lotes"]
+                              if L["juiz"] not in args.juizes]
+            print(f"  preservando {len(plano['lotes'])} lote(s) de outros "
+                  f"juízes")
+        elif not args.forcar:
+            raise SystemExit(
+                f"{alvo} já existe — os lotes desta rodada já foram lançados. "
+                f"Use `estado`/`coletar`, `--juizes X` para relançar um só, "
+                f"ou --forcar (paga tudo de novo)."
+            )
 
     for key, conjunto in (("flash", itens), ("sonnet", amostra),
                           ("luna", amostra)):
+        if args.juizes and key not in args.juizes:
+            continue
         j = judges.JUIZES_POR_KEY[key]
         if not j.disponivel():
             print(f"  {key}: SEM CHAVE — pulado")
             continue
-        tam = FATIA.get(j.provider, FATIA_PADRAO)
-        for ini in range(0, len(conjunto), tam):
-            pedaco = conjunto[ini:ini + tam]
+        pedacos, tam = _fatiar(conjunto, j, key)
+        print(f"  {key}: {len(pedacos)} lote(s) de até {tam} itens "
+              f"(~{tam * TOKENS_POR_ITEM.get(key, 8000) / 1e6:.1f} M tokens)"
+              + (" · SEQUENCIAL" if args.sequencial else ""))
+        for k, pedaco in enumerate(pedacos, 1):
+            # Sequencial: espera o lote anterior sair da fila antes de
+            # submeter o próximo. Necessário na openai, onde o limite de 5
+            # milhões de tokens enfileirados vale para o TOTAL em voo, não
+            # por lote — quatro lotes de 4 M cada foram recusados dois a dois.
+            if args.sequencial and plano["lotes"]:
+                ultimo = plano["lotes"][-1]
+                if ultimo["juiz"] == key:
+                    print(f"    aguardando a fatia {k-1} sair da fila...")
+                    judge_batch.aguardar(j, ultimo["lote"], intervalo=60.0,
+                                         teto_s=args.espera_max)
             lote = judge_batch.submeter(j, pedaco)
             plano["lotes"].append({
-                "juiz": key, "lote": lote, "de": ini,
+                "juiz": key, "lote": lote, "de": (k - 1) * tam,
                 "n": len(pedaco),
                 "custom_ids": [i.custom_id for i in pedaco],
             })
-            print(f"  {key:8s} fatia {ini//tam + 1}: {len(pedaco)} itens "
-                  f"-> {lote}")
+            print(f"  {key:8s} fatia {k}: {len(pedaco)} itens -> {lote}")
             _salvar(alvo, plano)
     _salvar(alvo, plano)
     print(f"\n{len(plano['lotes'])} lotes lançados; estado em {alvo}")
@@ -196,6 +243,13 @@ def main() -> int:
     ap.add_argument("--amostra", type=float, default=0.10)
     ap.add_argument("--semente", type=int, default=2026)
     ap.add_argument("--forcar", action="store_true")
+    ap.add_argument("--juizes", nargs="*", default=None,
+                    help="relança só estes juízes, preservando os demais")
+    ap.add_argument("--sequencial", action="store_true",
+                    help="espera cada lote sair da fila antes do próximo "
+                         "(obrigatório na openai: o teto de tokens "
+                         "enfileirados vale para o total em voo)")
+    ap.add_argument("--espera-max", type=float, default=14400.0)
     args = ap.parse_args()
     return {"lancar": lancar, "estado": estado, "coletar": coletar}[args.acao](args)
 
