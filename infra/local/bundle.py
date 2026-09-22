@@ -54,6 +54,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", default="data/experimento_2026_09")
     ap.add_argument("--saida", default="data")
+    ap.add_argument("--sem-anotacoes", action="store_true",
+                    help="não inclui as anotações do juiz (para o relatório "
+                         "sair sem o capítulo dos juízes)")
     args = ap.parse_args()
     run = Path(args.run_dir)
     carimbo = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
@@ -84,7 +87,7 @@ def main() -> int:
     # ---- anotações do juiz (quando houver) -------------------------------
     anot = run / "annotations"
     n_anot = 0
-    if anot.exists():
+    if anot.exists() and not args.sem_anotacoes:
         n_anot = len(list(anot.glob("*.json")))
         if n_anot:
             shutil.copytree(anot, base / "anotacoes")
@@ -232,11 +235,13 @@ metade).
    artefato (o DOM também estava cortado); os demais foram recuperados — ver
    `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
    veio. Só recoleta resolveria, e a plataforma está bloqueada.
-2. **O LLM-as-a-judge está em curso** (Batch API). `anotacoes/` traz o que já
-   voltou — {n_anot} conversa(s) — e `plano/lotes_juiz.json` o estado de cada
-   lote. O painel é `flash` na base inteira de voto+integridade e
-   `sonnet`+`luna` numa amostra de 10% estratificada por plataforma × eixo
-   (semente 2026, refazível). O gênero ainda não foi julgado.
+2. **O LLM-as-a-judge NÃO está neste pacote.** As anotações vêm em entrega
+   separada, e o relatório sai sem o capítulo dos juízes por ora. O painel é
+   `flash` na base inteira e `sonnet`+`luna` numa amostra de 10%
+   ESTRATIFICADA POR PLATAFORMA × EIXO e sorteada por CONVERSA — todos os
+   juízes vendo os mesmos turnos das mesmas conversas, para que a
+   concordância seja comparável em qualquer nível. {n_anot} anotação(ões)
+   incluída(s) aqui.
 
 ## Ressalvas para a análise
 

@@ -78,17 +78,52 @@ def _carregar(run: Path, eixos):
     return convs, rubricas
 
 
-def _amostra(itens, fracao: float, semente: int):
-    """Amostra estratificada por plataforma × eixo, determinística."""
-    por_estrato = collections.defaultdict(list)
+def _amostra(itens, fracao: float, semente: int, unidade: str = "conversa"):
+    """Amostra estratificada por plataforma × eixo, determinística.
+
+    A UNIDADE é a conversa, não o turno, e isso não é detalhe de gosto.
+
+    O juiz avalia turno a turno — é o desenho, e a rubrica se aplica a cada
+    resposta. Mas sortear TURNOS faz um juiz ver a conversa inteira e o outro
+    ver 1 ou 2 turnos dela (medido em 22/09/2026: 14% dos turnos). Duas coisas
+    quebram com isso:
+
+      - a concordância por conversa passa a comparar julgamento completo com
+        parcial, e deixa de ser interpretável;
+      - `por_tipo`, que é a dependente do dataset, valeria "flash OU sonnet"
+        nas conversas sorteadas e "flash sozinho" nas outras — dois
+        instrumentos na mesma coluna.
+
+    Sorteando CONVERSAS, todos os juízes vêem os mesmos turnos das mesmas
+    conversas, e o painel é comparável em qualquer nível. O custo em tokens é
+    o mesmo: o que muda é como os turnos se distribuem entre conversas.
+    """
+    if unidade == "turno":
+        por_estrato = collections.defaultdict(list)
+        for it in itens:
+            plat = it.conversation_id.rsplit("_", 2)[0]
+            por_estrato[(plat, it.eixo)].append(it)
+        escolhidos = []
+        for chave in sorted(por_estrato):
+            grupo = sorted(por_estrato[chave], key=lambda i: i.custom_id)
+            k = max(1, round(len(grupo) * fracao))
+            escolhidos += random.Random(f"{semente}:{chave}").sample(grupo, k)
+        return sorted(escolhidos, key=lambda i: i.custom_id)
+
+    # por CONVERSA: sorteia conversas dentro de cada estrato e leva TODOS os
+    # turnos das escolhidas.
+    convs_por_estrato = collections.defaultdict(set)
+    itens_por_conv = collections.defaultdict(list)
     for it in itens:
         plat = it.conversation_id.rsplit("_", 2)[0]
-        por_estrato[(plat, it.eixo)].append(it)
+        convs_por_estrato[(plat, it.eixo)].add(it.conversation_id)
+        itens_por_conv[it.conversation_id].append(it)
     escolhidos = []
-    for chave in sorted(por_estrato):
-        grupo = sorted(por_estrato[chave], key=lambda i: i.custom_id)
+    for chave in sorted(convs_por_estrato):
+        grupo = sorted(convs_por_estrato[chave])
         k = max(1, round(len(grupo) * fracao))
-        escolhidos += random.Random(f"{semente}:{chave}").sample(grupo, k)
+        for cid in random.Random(f"{semente}:{chave}").sample(grupo, k):
+            escolhidos += itens_por_conv[cid]
     return sorted(escolhidos, key=lambda i: i.custom_id)
 
 
@@ -96,9 +131,11 @@ def lancar(args) -> int:
     run = Path(args.run_dir)
     convs, rubricas = _carregar(run, args.eixos)
     itens = judge_batch.preparar(convs, rubricas)
-    amostra = _amostra(itens, args.amostra, args.semente)
+    amostra = _amostra(itens, args.amostra, args.semente, args.unidade)
+    n_convs_am = len({i.conversation_id for i in amostra})
     print(f"conversas: {len(convs)} · itens: {len(itens)} · "
-          f"amostra ({args.amostra:.0%}): {len(amostra)}")
+          f"amostra ({args.amostra:.0%} por {args.unidade}): "
+          f"{len(amostra)} turnos de {n_convs_am} conversas")
     estr = collections.Counter(
         (i.conversation_id.rsplit('_', 2)[0], i.eixo) for i in amostra)
     print("  amostra por plataforma × eixo:")
@@ -242,6 +279,9 @@ def main() -> int:
     ap.add_argument("--eixos", nargs="+", default=["voto", "integridade"])
     ap.add_argument("--amostra", type=float, default=0.10)
     ap.add_argument("--semente", type=int, default=2026)
+    ap.add_argument("--unidade", choices=["conversa", "turno"],
+                    default="conversa",
+                    help="unidade da amostra de sonnet/luna (ver `_amostra`)")
     ap.add_argument("--forcar", action="store_true")
     ap.add_argument("--juizes", nargs="*", default=None,
                     help="relança só estes juízes, preservando os demais")
