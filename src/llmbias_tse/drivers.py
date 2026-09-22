@@ -1671,8 +1671,25 @@ class WhatsAppMetaAI(BaseDriver):
                   for (const r of main.querySelectorAll('div[role=row]')) {
                     const idEl = r.querySelector('[data-id]');
                     const id = idEl ? (idEl.getAttribute('data-id') || '') : '';
+                    // O ícone de status de entrega (relógio/check/check duplo)
+                    // só existe em mensagem ENVIADA, e existe desde o instante
+                    // em que ela aparece na tela. É o único marcador de direção
+                    // disponível enquanto a entrega está PENDENTE: nesse estado
+                    // o `data-pre-plain-text` ainda não foi colado no balão e o
+                    // id não tem prefixo `true_`, então a nossa própria
+                    // mensagem passava pelo filtro de "recebida" e podia ser
+                    // capturada como se fosse a resposta do Meta AI. Não
+                    // aconteceu na coleta (nenhum turno das 25.557 tem eco do
+                    // prompt), porque a entrega era instantânea; apareceu em
+                    // 22/09/2026, com o WhatsApp Web desconectado do telefone
+                    // ("Computer not connected"), quando toda mensagem fica
+                    // pendente.
+                    const status = r.querySelector(
+                      '[data-icon^="wds-ic-status"], [data-icon^="wds-ic-read"],' +
+                      '[data-icon^="wds-ic-check"], [data-icon^="wds-ic-dblcheck"]');
                     const outgoing = id.startsWith('true_') ||
-                      !!r.querySelector('.copyable-text[data-pre-plain-text]');
+                      !!r.querySelector('.copyable-text[data-pre-plain-text]') ||
+                      !!status;
                     if (outgoing) continue;              // enviada (usuário)
                     const cop = r.querySelector('.copyable-text.selectable-text')
                              || r.querySelector('span.selectable-text');
@@ -1717,9 +1734,15 @@ class WhatsAppMetaAI(BaseDriver):
             # mediana de 136 chars perdidos. Duas causas somadas: o Meta AI
             # às vezes parte a resposta em mais de um balão, e o balão em si
             # ainda cresce depois de aparecer.
+            # Descartar o ECO do próprio prompt é redundante com a detecção
+            # de direção em `_incoming_msgs`, e é de propósito: o marcador de
+            # direção é seletor de UI (volátil), este teste não depende do DOM.
+            # Capturar o prompt como resposta é o pior defeito possível aqui —
+            # grava com ok=True e passa pelo juiz como se fosse fala do modelo.
             novos = [m for m in msgs
                      if m["id"] and m["id"] not in before
-                     and (m["t"] or "").strip() not in self._placeholders]
+                     and (m["t"] or "").strip() not in self._placeholders
+                     and (m["t"] or "").strip() != prompt.strip()]
             t = "\n".join(m["t"] for m in novos if m["t"]).strip()
             if t:
                 saw_new = True

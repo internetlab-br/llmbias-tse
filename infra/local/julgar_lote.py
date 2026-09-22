@@ -53,14 +53,23 @@ TOKENS_MAX = {"openai": 4_000_000, "anthropic": 30_000_000,
 TOKENS_MAX_PADRAO = 4_000_000
 # Tokens de entrada por turno, medidos por provedor (ver `custo_juiz.py`).
 TOKENS_POR_ITEM = {"flash": 6475, "sonnet": 13351, "luna": 7546}
+# Teto de saída que a submissão declara. Na openai ele ENTRA na conta de
+# tokens enfileirados, então precisa entrar no fatiamento também — foi o que
+# faltou para as três fatias de 530 itens recusadas: 530 × (7.546 + 4.000) =
+# 6,1 M contra um teto de 5 M. Tem de casar com `max_output_tokens` de
+# `judge_batch._submeter_openai`.
+RESERVA_SAIDA = {"openai": 2000}
 
 
 def _fatiar(conjunto, juiz, key):
     """Fatias que respeitam o teto de itens E o de tokens enfileirados."""
     max_itens = FATIA.get(juiz.provider, FATIA_PADRAO)
     max_tok = TOKENS_MAX.get(juiz.provider, TOKENS_MAX_PADRAO)
-    por_item = TOKENS_POR_ITEM.get(key, 8000)
-    por_tok = max(1, max_tok // por_item)
+    por_item = (TOKENS_POR_ITEM.get(key, 8000)
+                + RESERVA_SAIDA.get(juiz.provider, 0))
+    # 70% do teto: a conta por item é estimativa (o prompt varia de 17 mil a
+    # 87 mil chars), e um lote recusado custa a fila inteira.
+    por_tok = max(1, int(0.7 * max_tok) // por_item)
     tam = min(max_itens, por_tok)
     return [conjunto[i:i + tam] for i in range(0, len(conjunto), tam)], tam
 
