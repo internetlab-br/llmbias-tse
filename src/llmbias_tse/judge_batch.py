@@ -237,6 +237,14 @@ def _submeter_openai(juiz: Juiz, itens: list[ItemLote]) -> str:
             "body": {
                 "model": juiz.model,
                 "reasoning": {"effort": juiz.effort},
+                # TETO DE SAÍDA. Sem ele a openai reserva o máximo do modelo
+                # no cálculo de tokens ENFILEIRADOS, e o lote é recusado com
+                # `token_limit_exceeded` mesmo tendo entrada folgada — três
+                # fatias de 530 itens (~4 M de entrada, contra um teto de 5 M)
+                # foram rejeitadas uma a uma em 21/09/2026 por isso. A saída
+                # medida do juiz com effort baixo é ~800 tokens, máximo
+                # observado 856; 4.000 é folga de 5x.
+                "max_output_tokens": 4000,
                 "input": [{"role": "user", "content": it.prompt}],
                 "text": {
                     "format": {

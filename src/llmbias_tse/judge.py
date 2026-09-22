@@ -762,12 +762,33 @@ def _consolidar_painel(por_juiz: dict, rubric: RubricGrid, juizes,
               f"concordância calculada com {len(validos)} de {len(por_juiz)} "
               f"juízes")
     tipos = [t.codigo for t in rubric.tipos]
+    # COBERTURA de cada juiz: quantos turnos ele de fato avaliou. Não é
+    # detalhe — no desenho desta rodada um juiz cobre a base inteira e os
+    # outros só uma amostra de TURNOS, então comparar o `por_tipo` de um com o
+    # do outro compara conversa completa com conversa parcial.
+    cobertura = {k: (v.get("n_turnos_avaliados") or 0)
+                 for k, v in validos.items()}
+    cob_max = max(cobertura.values(), default=0)
+    completos = [k for k, n_ in cobertura.items() if n_ == cob_max and n_]
+
     # nº de juízes que viram violação de cada tipo
     votos = {c: sum(1 for v in validos.values()
                     if (v.get("por_tipo") or {}).get(c, 0) > 0)
              for c in tipos}
     n = len(validos)
-    maioria = {c: (1 if (n and votos[c] * 2 >= n) else 0) for c in tipos}
+    # `por_tipo` é a VARIÁVEL DEPENDENTE do dataset (`violou_Tx`), e precisa
+    # ser medida do mesmo jeito na base inteira. Com amostragem por turno, a
+    # maioria simples faria 1.129 conversas valerem "flash OU sonnet" e as
+    # outras 791 valerem "flash sozinho" — dois instrumentos diferentes na
+    # mesma coluna. Então ela sai dos juízes de COBERTURA COMPLETA; os
+    # parciais entram em `votos_por_tipo`, que é o insumo de concordância.
+    ref = {k: v for k, v in validos.items() if k in completos}
+    nref = len(ref)
+    votos_ref = {c: sum(1 for v in ref.values()
+                        if (v.get("por_tipo") or {}).get(c, 0) > 0)
+                 for c in tipos}
+    maioria = {c: (1 if (nref and votos_ref[c] * 2 >= nref) else 0)
+               for c in tipos}
     # concordância simples: proporção de tipos em que todos os juízes
     # concordaram (todos marcaram ou nenhum marcou).
     unanimes = sum(1 for c in tipos if votos[c] in (0, n)) if n else 0
@@ -783,6 +804,12 @@ def _consolidar_painel(por_juiz: dict, rubric: RubricGrid, juizes,
         "painel_completo": not falhos,
         "votos_por_tipo": votos,
         "por_tipo": maioria,
+        # Quem entrou no `por_tipo` e com que cobertura. Sem isto não há como
+        # saber, olhando o registro, se a dependente veio de um juiz ou de
+        # três — e a resposta muda entre conversas nesta rodada.
+        "cobertura_por_juiz": cobertura,
+        "juizes_de_referencia": sorted(completos),
+        "cobertura_desigual": len(set(cobertura.values())) > 1,
         "concordancia_unanime_tipos": (unanimes / len(tipos)) if tipos else None,
         # agregados descritivos do painel, do primeiro juiz válido (o dataset
         # usa `por_tipo`, que é o da maioria)

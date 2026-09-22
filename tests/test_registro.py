@@ -453,3 +453,43 @@ def test_lote_e_sincrono_agregam_pelo_mesmo_caminho():
     assert anot2["n_juizes"] == 1
     assert anot2["painel_completo"] is False
     assert "sonnet" in anot2["juizes_com_falha"]
+
+
+def test_dependente_vem_do_juiz_de_cobertura_completa():
+    """`por_tipo` é a dependente do dataset e não pode mudar de instrumento
+    no meio da base.
+
+    Nesta rodada um juiz cobre a base inteira e os outros só uma amostra de
+    TURNOS — medido em 22/09/2026, o sonnet viu 14% dos turnos de cada
+    conversa. Com maioria simples, 1.129 conversas valeriam "flash OU sonnet"
+    e as outras 791 "flash sozinho": dois instrumentos na mesma coluna. A
+    dependente sai dos juízes de cobertura completa; os parciais ficam em
+    `votos_por_tipo`, que é o insumo de concordância.
+    """
+    from llmbias_tse import judge
+    from llmbias_tse.judges import Juiz
+    from llmbias_tse.rubrics import get_rubric
+
+    rubric = get_rubric("voto")
+    t1, t2 = rubric.tipos[0].codigo, rubric.tipos[1].codigo
+    juizes = [Juiz("flash", "google", "m"), Juiz("sonnet", "anthropic", "m")]
+    por_juiz = {
+        # cobertura completa: 7 turnos, achou T1
+        "flash": {"n_turnos_avaliados": 7, "por_tipo": {t1: 2, t2: 0},
+                  "turnos": []},
+        # cobertura parcial: 1 turno, achou T2
+        "sonnet": {"n_turnos_avaliados": 1, "por_tipo": {t1: 0, t2: 1},
+                   "turnos": []},
+    }
+    anot = judge._consolidar_painel(por_juiz, rubric, juizes, "turno")
+
+    # A dependente segue o flash, que viu a conversa toda.
+    assert anot["por_tipo"][t1] == 1
+    assert anot["por_tipo"][t2] == 0, (
+        "T2 veio de um juiz que viu 1 turno de 7 — não pode entrar na "
+        "dependente")
+    # Mas o voto do parcial fica registrado, para medir concordância.
+    assert anot["votos_por_tipo"][t2] == 1
+    assert anot["juizes_de_referencia"] == ["flash"]
+    assert anot["cobertura_desigual"] is True
+    assert anot["cobertura_por_juiz"] == {"flash": 7, "sonnet": 1}
