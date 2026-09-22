@@ -233,6 +233,12 @@ def coletar(args) -> int:
     porconv = collections.defaultdict(lambda: collections.defaultdict(dict))
     faltando = collections.Counter()
     for L in plano["lotes"]:
+        # `--juizes` na coleta serve para fechar a base com quem já terminou.
+        # É o caso de um juiz de cobertura completa estar pronto e os de
+        # amostra ainda na fila: a dependente já pode ser escrita, e a
+        # concordância entra depois.
+        if args.juizes and L["juiz"] not in args.juizes:
+            continue
         j = judges.JUIZES_POR_KEY[L["juiz"]]
         try:
             res = judge_batch.coletar(j, L["lote"])

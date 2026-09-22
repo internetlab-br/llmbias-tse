@@ -91,6 +91,11 @@ def main() -> int:
         n_anot = len(list(anot.glob("*.json")))
         if n_anot:
             shutil.copytree(anot, base / "anotacoes")
+    # O dataset do experimento (uma linha por conversa, com as colunas de
+    # rubrica) quando o juiz já escreveu anotação.
+    for nome in ("dataset.csv", "dataset.jsonl", "dataset.parquet"):
+        if (run / nome).exists():
+            shutil.copy2(run / nome, base / "processados" / nome)
     if (run / "lotes_juiz.json").exists():
         shutil.copy2(run / "lotes_juiz.json", base / "plano" / "lotes_juiz.json")
     if (run / "recuperados.jsonl").exists():
@@ -235,13 +240,20 @@ metade).
    artefato (o DOM também estava cortado); os demais foram recuperados — ver
    `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
    veio. Só recoleta resolveria, e a plataforma está bloqueada.
-2. **O LLM-as-a-judge NÃO está neste pacote.** As anotações vêm em entrega
-   separada, e o relatório sai sem o capítulo dos juízes por ora. O painel é
-   `flash` na base inteira e `sonnet`+`luna` numa amostra de 10%
-   ESTRATIFICADA POR PLATAFORMA × EIXO e sorteada por CONVERSA — todos os
-   juízes vendo os mesmos turnos das mesmas conversas, para que a
-   concordância seja comparável em qualquer nível. {n_anot} anotação(ões)
-   incluída(s) aqui.
+2. **O juiz deste pacote é só o `flash`** (gemini-3.7-flash), que julgou
+   TODOS os turnos de TODAS as conversas de voto e integridade — cobertura
+   completa, que é o que a variável dependente exige. São {n_anot}
+   anotação(ões), e `processados/dataset.csv` traz as colunas `violou_Tx`
+   derivadas delas.
+
+   **Não há capítulo de concordância**, porque concordância precisa de mais
+   de um juiz: `sonnet` e `luna` estão rodando sobre uma amostra de 10%
+   estratificada por plataforma × eixo e sorteada por CONVERSA (192
+   conversas, todos os turnos de cada). Entram em entrega separada. Cada
+   anotação declara `cobertura_por_juiz` e `juizes_de_referencia`, então dá
+   para verificar de quem veio a dependente sem depender desta nota.
+
+3. **O gênero ainda não foi julgado.**
 
 ## Ressalvas para a análise
 
