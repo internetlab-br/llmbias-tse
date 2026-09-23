@@ -154,7 +154,7 @@ def lancar(args) -> int:
     plano = {"eixos": list(args.eixos), "amostra": args.amostra,
              "semente": args.semente, "itens_total": len(itens),
              "itens_amostra": len(amostra), "lotes": []}
-    alvo = run / "lotes_juiz.json"
+    alvo = run / args.plano
     if alvo.exists():
         # Relançar só um juiz (`--juizes luna`) preserva o que já está no ar.
         # É o caso de um provedor ter recusado o lote: o resto da fila não
@@ -217,7 +217,7 @@ def _salvar(alvo: Path, plano: dict) -> None:
 
 def estado(args) -> int:
     run = Path(args.run_dir)
-    plano = json.loads((run / "lotes_juiz.json").read_text(encoding="utf-8"))
+    plano = json.loads((run / args.plano).read_text(encoding="utf-8"))
     por_juiz = collections.defaultdict(collections.Counter)
     for L in plano["lotes"]:
         j = judges.JUIZES_POR_KEY[L["juiz"]]
@@ -229,7 +229,7 @@ def estado(args) -> int:
         L["estado"] = st
     for k in sorted(por_juiz):
         print(f"  {k:8s} {dict(por_juiz[k])}")
-    _salvar(run / "lotes_juiz.json", plano)
+    _salvar(run / args.plano, plano)
     prontos = sum(1 for L in plano["lotes"] if L.get("estado") == "pronto")
     print(f"\nprontos: {prontos}/{len(plano['lotes'])}")
     return 0
@@ -237,7 +237,7 @@ def estado(args) -> int:
 
 def coletar(args) -> int:
     run = Path(args.run_dir)
-    plano = json.loads((run / "lotes_juiz.json").read_text(encoding="utf-8"))
+    plano = json.loads((run / args.plano).read_text(encoding="utf-8"))
     # {conversa: {juiz: {turno: Extracao}}}
     porconv = collections.defaultdict(lambda: collections.defaultdict(dict))
     faltando = collections.Counter()
@@ -267,7 +267,7 @@ def coletar(args) -> int:
               f"(ficam sem aquele juiz na anotação, declarado em "
               f"`juizes_com_falha`)")
 
-    anot_dir = run / "annotations"
+    anot_dir = run / args.saida
     anot_dir.mkdir(exist_ok=True)
     escritas = 0
     for cid, prontos in sorted(porconv.items()):
@@ -298,6 +298,16 @@ def main() -> int:
                     default="conversa",
                     help="unidade da amostra de sonnet/luna (ver `_amostra`)")
     ap.add_argument("--forcar", action="store_true")
+    ap.add_argument("--plano", default="lotes_juiz.json",
+                    help="arquivo (no run dir) com os lotes desta rodada de "
+                         "julgamento; um por rodada, para lançar o gênero sem "
+                         "tocar no plano de voto+integridade")
+    ap.add_argument("--saida", default="annotations",
+                    help="pasta (no run dir) onde `coletar` grava. O dataset "
+                         "do relatório lê `annotations/` só com o flash; o "
+                         "painel de três juízes vai para outra pasta, porque "
+                         "nas conversas da amostra ele muda a dependente "
+                         "(maioria de três em vez do flash sozinho)")
     ap.add_argument("--juizes", nargs="*", default=None,
                     help="relança só estes juízes, preservando os demais")
     ap.add_argument("--sequencial", action="store_true",
