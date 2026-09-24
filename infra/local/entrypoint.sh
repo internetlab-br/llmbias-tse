@@ -130,11 +130,27 @@ log "CDP pronto em :${CDP_PORT}"
 # e não na imagem: assim mexer no código não exige rebuild).
 uv sync --frozen 2>/dev/null || uv sync || log "AVISO: uv sync falhou"
 
-if [ "${AUTO_INICIAR:-0}" = "1" ]; then
-  log "AUTO_INICIAR=1: começando a coleta"
-  /usr/local/bin/roda.sh &
-else
-  log "pronto. Logue na conta pela tela remota e dê play no painel."
-fi
+# O runner sobe SEMPRE. Ele obedece ao arquivo de controle — fica dormindo
+# enquanto a sessão está parada/pausada e começa quando o painel manda play.
+# Antes ele só subia com AUTO_INICIAR=1, e sem ele o botão de play escrevia
+# "rodando" num arquivo que ninguém lia: o painel mostrava as 16 sessões
+# coletando com zero processo de coleta no ar.
+#
+# Prefere a cópia do repositório montado à da imagem, pelo mesmo motivo do
+# `uv sync` em runtime: corrigir o runner não deveria exigir rebuild.
+RODA=/usr/local/bin/roda.sh
+[ -x /app/infra/local/roda.sh ] && RODA=/app/infra/local/roda.sh
+# Roda uma CÓPIA, nunca o arquivo do repositório. O bash lê o script do disco
+# por offset de byte enquanto executa, então reescrever o arquivo por baixo de
+# um processo em andamento corrompe o parse e o shell morre calado. Foi o que
+# aconteceu em 18/09/2026: uma correção no `roda.sh` derrubou o runner de 14
+# das 16 estações, cada uma no meio de um lote, e o único sinal foi o painel
+# dizendo "runner fora do ar" — que eu levei um tempo para acreditar.
+# Caminho ÚNICO por execução. Um caminho fixo só empurra o problema: copiar
+# por cima de uma cópia que já está rodando corrompe o parse do mesmo jeito.
+ATIVO="/tmp/roda-ativo.$(date +%s).$$.sh"
+cp "$RODA" "$ATIVO" && chmod +x "$ATIVO"
+log "subindo o runner (cópia de $RODA); espera o play do painel se estiver parado"
+"$ATIVO" &
 
 wait "$CHROME_PID"

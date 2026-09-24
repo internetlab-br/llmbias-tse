@@ -48,6 +48,60 @@ def _has_leaf_text(page, needles: list[str]) -> bool:
         return False
 
 
+# Contêineres e botões do aviso de cookies (OneTrust e parecidos). Apareceu
+# no Grok em 18/09/2026 numa conta nova: o "Centro de preferências de
+# privacidade" abriu por cima do composer e o clique para digitar deu timeout
+# de 30s. Não é um erro que se leia como "tem um banner na frente" — é um
+# Locator.click estourando o prazo, que é o mesmo sintoma de seletor quebrado.
+#
+# "Rejeitar todos" é a escolha: fecha o banner de vez (fica gravado no perfil
+# persistente), não altera o que o modelo responde e é a posição defensável
+# para uma auditoria. Aceitar seria escolher ser rastreado sem necessidade.
+_COOKIES_CONTAINERS = (
+    "#onetrust-consent-sdk",
+    "#onetrust-banner-sdk",
+    "[role=dialog][aria-label*='cookie' i]",
+    "[role=dialog][aria-label*='privacidade' i]",
+)
+_COOKIES_BOTOES = (
+    "#onetrust-reject-all-handler",
+    "button:has-text('Rejeitar todos')",
+    "button:has-text('Reject all')",
+    "button:has-text('Confirmar minhas escolhas')",
+    "button:has-text('Confirm my choices')",
+)
+
+
+def _dispensar_cookies(page) -> bool:
+    """Fecha o aviso de cookies, se estiver na tela. Devolve True se clicou.
+
+    Chamado só no PRIMEIRO turno de cada conversa: alguns desses botões
+    recarregam a página, e recarregar no meio de uma conversa perderia os
+    turnos já coletados.
+    """
+    presente = False
+    for sel in _COOKIES_CONTAINERS:
+        try:
+            if page.locator(sel).first.count() > 0:
+                presente = True
+                break
+        except Exception:
+            continue
+    if not presente:
+        return False
+    for sel in _COOKIES_BOTOES:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0 and loc.is_visible():
+                loc.click(timeout=4000)
+                time.sleep(1.2)
+                print("[driver] aviso de cookies dispensado", flush=True)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 class BaseDriver:
     name: str = "base"
     new_chat_url: str = ""
@@ -73,6 +127,8 @@ class BaseDriver:
     # a resposta final. Enquanto o texto lido contiver algum deles, a detecção
     # de fim NÃO retorna (evita capturar "Searching the web"/status e truncar).
     pending_markers: list[str] = []
+    # Onde a UI mostra o modelo/modo em uso (ver `rotulo_modelo`).
+    modelo_selectors: list[str] = []
     # Tempo extra após carregar a página antes de digitar.
     settle_s: float = 1.5
     # Teto de espera pela resposta (ferramentas com busca na web são lentas).
@@ -88,6 +144,33 @@ class BaseDriver:
     def open_new_chat(self, page) -> None:
         page.goto(self.new_chat_url, wait_until="domcontentloaded", timeout=60000)
         time.sleep(self.settle_s)
+
+    def rotulo_modelo(self, page) -> str | None:
+        """Qual modelo/modo a UI diz estar usando, como texto, ou None.
+
+        Metadado, não controle: o driver não escolhe modelo, usa o padrão da
+        plataforma para a conta — é isso que um usuário comum encontra. Mas
+        qual é esse padrão muda sem aviso (as contas de gemini desta rodada
+        abrem em Flash-Lite, não no Flash), e a rodada 1 não gravou nada a
+        respeito. Sem este campo, "o Gemini respondeu X" não é comparável
+        entre rodadas, e a diferença fica indistinguível de mudança de
+        comportamento do mesmo modelo.
+
+        Nunca levanta: é anotação. Ausência é informação (None), não erro.
+        """
+        for sel in self.modelo_selectors:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() == 0:
+                    continue
+                txt = (loc.text_content() or "").strip()
+                if not txt:
+                    txt = (loc.get_attribute("aria-label") or "").strip()
+                if txt:
+                    return re.sub(r"\s+", " ", txt)[:120]
+            except Exception:
+                continue
+        return None
 
     def submit(self, page, prompt: str, max_limit_waits: int | None = None) -> str:
         """Envia UM prompt no chat ATUAL (sem abrir chat novo) e captura a
@@ -111,6 +194,10 @@ class BaseDriver:
         # colapso de texto e a prefixos repetidos entre turnos).
         user_baseline = (capture.count_responses(page, self.user_selector)
                          if self.user_selector else 0)
+        if user_baseline == 0:
+            # Primeiro turno: é aqui que o aviso de cookies aparece, e é o
+            # único momento em que dispensá-lo não arrisca perder turnos.
+            _dispensar_cookies(page)
         while True:
             if capture.is_rate_limited(page):
                 attempt += 1
@@ -258,6 +345,32 @@ class BaseDriver:
             time.sleep(0.5)
         return False
 
+    @staticmethod
+    def _normaliza(s: str) -> str:
+        """Só letras e dígitos, minúsculos. Os composers inserem marcas de
+        largura zero (U+200B/U+200C), normalizam espaço e quebram linha do
+        seu jeito; comparar caractere a caractere acusaria diferença em todo
+        turno."""
+        return "".join(c for c in (s or "").lower() if c.isalnum())
+
+    def _composer_confere(self, page, prompt: str, prefixo: int = 40) -> bool:
+        """O composer contém o começo do prompt? Erra para o lado de deixar
+        passar: falso positivo aqui é uma conversa perdida à toa, e há UIs em
+        que não dá para ler o conteúdo do composer."""
+        try:
+            box = capture.first_visible(page, self.composer_selectors,
+                                        timeout=5)
+            atual = box.input_value() if box.evaluate(
+                "e => e.tagName.toLowerCase() === 'textarea' "
+                "|| e.tagName.toLowerCase() === 'input'"
+            ) else (box.text_content() or "")
+        except Exception:
+            return True  # não deu para ler: não é motivo para abortar
+        if not self._normaliza(atual):
+            return True  # composer vazio (algumas UIs limpam no envio)
+        return self._normaliza(atual).startswith(
+            self._normaliza(prompt)[:prefixo])
+
     def _perform_send(self, page, prompt: str) -> None:
         """Foca o composer, LIMPA (Ctrl+A/Delete) e digita o prompt, e envia.
         Limpar antes evita texto duplicado caso um envio anterior não tenha
@@ -272,15 +385,46 @@ class BaseDriver:
         estava declarado em `busy_selectors`; só não era consultado aqui.
         """
         self._aguardar_ocioso(page)
+        # ANTES de tocar no composer: se há verificação humana na tela, nada
+        # que este código faça resolve, e a queda para `focus()` digitaria por
+        # baixo do modal — bloqueio visível virando dado vazio.
+        rot = capture.verificacao_humana(page)
+        if rot:
+            events.alerta(events.PRECISA_HUMANO,
+                          f"verificação de segurança na tela: {rot}",
+                          driver=self.name)
+            raise capture.VerificacaoHumana(
+                f"{self.name}: verificação de segurança na tela ({rot}) — "
+                "resolva pela tela remota e retome no painel"
+            )
         for tentativa in range(2):
-            box = capture.first_visible(page, self.composer_selectors)
-            box.click()
+            capture.focar_composer(page, self.composer_selectors)
             try:
                 page.keyboard.press("Control+A")
                 page.keyboard.press("Delete")
             except Exception:
                 pass
             self._digitar(page, prompt)
+            # CONFERE o que ficou no composer antes de enviar. Um editor com o
+            # estado interno dessincronizado (Lexical, no Copilot) aceita o
+            # texto novo INTERCALADO com o rascunho anterior — "Oi, tenho 22
+            # anos, sou hloimnhea mum..." —, o Ctrl+A/Delete não o limpa, e o
+            # modelo responde ao embaralhado. Visto em 18/09/2026: o Copilot
+            # devolveu "a mensagem ficou embaralhada ou com várias letras fora
+            # de ordem", resposta de 244 chars perfeitamente plausível que
+            # entraria na base como dado. Não é falha de envio nem bloqueio:
+            # é a pergunta errada tendo sido feita.
+            if not self._composer_confere(page, prompt):
+                if tentativa == 0:
+                    print(f"[driver:{self.name}] composer embaralhado; "
+                          "recarregando a página e redigitando", flush=True)
+                    self.open_new_chat(page)
+                    continue
+                raise capture.SendFailed(
+                    "o texto no composer não é o prompt (editor "
+                    "dessincronizado) — abortando para não perguntar outra "
+                    "coisa"
+                )
             if not self.submit_selector:
                 page.keyboard.press("Enter")
                 return
@@ -382,6 +526,7 @@ class BaseDriver:
                 read_selector=read, ignore_text=prev_text,
                 timeout=self.response_timeout,
                 pending_markers=self.pending_markers,
+                antes_de_ler=getattr(self, "antes_de_ler", None),
             )
         return capture.wait_stable_text(
             page, self.response_selector, read_selector=read,
@@ -399,6 +544,7 @@ class BaseDriver:
 
 class ChatGPT(BaseDriver):
     name = "chatgpt"
+    modelo_selectors = ["button.__composer-pill[aria-haspopup='menu']"]
     new_chat_url = "https://chatgpt.com/"
     composer_selectors = [
         "#prompt-textarea",
@@ -464,6 +610,112 @@ class ChatGPTMomentary(ChatGPT):
             pass
         return _has_leaf_text(page, self._confirm_needles)
 
+    # Botões que fecham o aviso de boas-vindas do chat temporário. O aviso
+    # ("Este chat não aparecerá no histórico…") apareceu em 18/09/2026, na
+    # primeira conversa temporária da conta Plus nova: é informativo, tem só
+    # "Continuar", e o backdrop INTERCEPTA o clique no composer. O sintoma não
+    # é um erro claro — é o Playwright repetindo "element intercepts pointer
+    # events" até o timeout, turno após turno.
+    _fechar_aviso = (
+        "[role=dialog] button:has-text('Continuar')",
+        "[role=dialog] button:has-text('Continue')",
+        "[role=dialog] button[aria-label='Fechar']",
+        "[role=dialog] button[aria-label='Close']",
+        # Convite para conectar um app (Google Calendar, Gmail…). NÃO é
+        # `role=dialog`: é um cartão ancorado no composer, então a varredura
+        # restrita a diálogos não o via. Recusar é o certo aqui por dois
+        # motivos — ele intercepta o clique no seletor de personalização, e
+        # conectar um app daria ao modelo dados da conta que não fazem parte
+        # do estímulo.
+        "button:has-text('Agora não')",
+        "button:has-text('Not now')",
+    )
+
+    def _dispensar_aviso(self, page) -> None:
+        """Fecha avisos/convites que cobrem o composer. Idempotente.
+
+        Tenta TODOS os seletores, não para no primeiro: numa conta apareceram
+        dois ao mesmo tempo (o aviso do chat temporário e o convite do
+        Calendar), e fechar só um deixava o outro interceptando o clique.
+        """
+        for sel in self._fechar_aviso:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0 and loc.is_visible():
+                    loc.click(timeout=3000)
+                    time.sleep(0.6)
+            except Exception:
+                continue
+
+    # Rótulo do seletor de personalização no cabeçalho. Só o NEGATIVO é
+    # testável por substring: "Personalizado" está contido em "Não
+    # personalizado", então procurar o positivo casaria com os dois estados.
+    _rotulos_sem_perso = ("Não personalizado", "Not personalized")
+    _re_sem_perso = re.compile(r"(não personalizado|not personalized)", re.I)
+
+    def _personalizacao_desligada(self, page) -> bool:
+        for rot in self._rotulos_sem_perso:
+            try:
+                if page.locator(f"button:has-text('{rot}')").count() > 0:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _tem_seletor_de_perso(self, page) -> bool:
+        try:
+            return page.locator("button:has-text('ersonalizado'), "
+                                "button:has-text('ersonalized')").count() > 0
+        except Exception:
+            return False
+
+    def _desligar_personalizacao(self, page) -> None:
+        """Põe a conversa em "Não personalizado" (ignora memória, plugins e
+        instruções personalizadas).
+
+        Apareceu com a conta Plus (18/09/2026): o chat temporário passou a
+        **consultar a memória** — o banner diz isso com todas as letras
+        ("Este chat pode consultar a memória, os plugins e as instruções
+        personalizadas, mas não aparecerá no seu histórico"). Temporário virou
+        só "não salva no histórico", que não é o que o experimento precisa: se
+        a memória atravessa as conversas, o perfil da conversa N vaza na N+1 e
+        o fator de perfil deixa de ser limpo. O isolamento agora tem DOIS
+        requisitos, e este é o segundo.
+
+        Persiste entre conversas na prática, mas conferimos e reajustamos em
+        toda conversa: "na prática" é o tipo de garantia que a UI revoga sem
+        avisar, e aqui a falha é silenciosa.
+
+        Se o seletor não existir (contas sem o recurso, onde o temporário já
+        ignora a memória, como era até agosto), apenas avisa. Se existir,
+        estiver ligado e não ceder, LEVANTA.
+        """
+        if self._personalizacao_desligada(page):
+            return
+        if not self._tem_seletor_de_perso(page):
+            print("[chatgpt] AVISO: seletor de personalização não encontrado; "
+                  "assumindo que o chat temporário já ignora a memória",
+                  flush=True)
+            return
+        for _ in range(3):
+            try:
+                page.locator("button:has-text('ersonalizado'), "
+                             "button:has-text('ersonalized')").first.click(
+                                 timeout=5000)
+                time.sleep(1.0)
+                page.get_by_role("menuitemradio",
+                                 name=self._re_sem_perso).first.click(
+                                     timeout=5000)
+                time.sleep(1.5)
+            except Exception:
+                time.sleep(1.0)
+            if self._personalizacao_desligada(page):
+                return
+        raise RuntimeError(
+            "ChatGPT: não consegui pôr a conversa em 'Não personalizado' — "
+            "abortando para não coletar com memória entre conversas"
+        )
+
     def open_new_chat(self, page) -> None:
         page.goto(self.new_chat_url, wait_until="domcontentloaded",
                   timeout=60000)
@@ -471,6 +723,10 @@ class ChatGPTMomentary(ChatGPT):
         deadline = time.time() + 12
         while time.time() < deadline:
             if self._momentary_active(page):
+                # Depois de confirmar o modo, e não antes: o aviso é do modo
+                # temporário, então só existe quando a confirmação já passou.
+                self._dispensar_aviso(page)
+                self._desligar_personalizacao(page)
                 return
             time.sleep(0.4)
         raise RuntimeError(
@@ -482,6 +738,8 @@ class ChatGPTMomentary(ChatGPT):
 class Gemini(BaseDriver):
     name = "gemini"
     new_chat_url = "https://gemini.google.com/app"
+    modelo_selectors = ["button[aria-label*='seletor de modo' i]",
+                        "button[aria-label*='model selector' i]"]
     composer_selectors = [
         "div.ql-editor[contenteditable='true']",
         "rich-textarea div[contenteditable='true']",
@@ -586,6 +844,8 @@ class GeminiMomentary(Gemini):
 
 class Claude(BaseDriver):
     name = "claude"
+    modelo_selectors = ["button[aria-label^='Modelo:']",
+                        "button[aria-label^='Model:']"]
     new_chat_url = "https://claude.ai/new"
     composer_selectors = [
         "div[contenteditable='true'].ProseMirror",
@@ -603,11 +863,86 @@ class Claude(BaseDriver):
         "button[aria-label*='Stop']",
         "button[aria-label*='Parar']",
     ]
+    # Título do resumo de raciocínio. O container da resposta engloba o
+    # cabeçalho do bloco de pensamento, e ele sai DUPLICADO no começo do
+    # texto: "Ranking candidates by polling-based win probability.Ranking
+    # candidates by polling-based win probability.\nJoão Campos (PSB)…".
+    # Medido em 19/09/2026: 329 de 1.153 turnos (28,5%), e só no Claude.
+    #
+    # Não é boilerplate neutro como o rodapé do AI Mode: é a DESCRIÇÃO DO
+    # RACIOCÍNIO do modelo ("Deciding how to handle a request for voting
+    # advice", "Weighing how to answer a politically charged candidate
+    # question"), quase sempre em inglês. Mandá-la para o juiz é oferecer
+    # meta-comentário sobre a deliberação como se fosse resposta — e o bloco
+    # de resistência da rubrica (R1-R3) mede exatamente hesitação e ressalva.
+    _titulo_max = 200
     # Fase de thinking/pesquisa do Claude: enquanto o texto lido for isto, não é
     # a resposta final (evita truncar em "Searching the web"). / são
     # os ícones de status (Pondering/Searching) do Claude.
     pending_markers = ["Searching the web", "", ""]
     settle_s = 2.0
+
+
+    def antes_de_ler(self, page) -> None:
+        """Rola até o fim da conversa antes de cada leitura.
+
+        O Claude renderiza a resposta por demanda: o que está abaixo da dobra
+        fica como esqueleto (`data-cds="Skeleton"`, texto "Loading") até
+        alguém chegar lá. Sem rolar, a captura trazia a prosa e deixava a
+        LISTA para trás — e lista pronta para repassar é o que os pedidos do
+        instrumento pedem. 28 turnos assim até 20/09/2026, e a primeira
+        tentativa de conserto (esperar o "Loading" resolver) não funcionou
+        porque ele não resolve sozinho: só rolando.
+        """
+        page.evaluate(
+            """() => {
+              // 1) o fim da conversa
+              const alvos = document.querySelectorAll(
+                '[data-is-streaming], main, [role=main]');
+              const el = alvos[alvos.length - 1];
+              if (el) el.scrollIntoView({block: 'end'});
+              window.scrollTo(0, document.body.scrollHeight);
+              // 2) rola o contêiner ROLÁVEL, não a janela. No Claude a
+              //    conversa vive num div com overflow próprio, e
+              //    `window.scrollTo` não mexe nele.
+              document.querySelectorAll('div').forEach(d => {
+                if (d.scrollHeight > d.clientHeight + 50
+                    && d.clientHeight > 200) {
+                  d.scrollTop = d.scrollHeight;
+                }
+              });
+              // 3) e traz o PRÓPRIO esqueleto para a tela. Rolar até o fim
+              //    não basta quando o bloco pendente está no meio da
+              //    resposta: 2 das 11 conversas refeitas voltaram com
+              //    "Loading" mesmo depois da rolagem do passo 1.
+              const esq = document.querySelectorAll('[data-cds="Skeleton"]');
+              if (esq.length) {
+                esq[esq.length - 1].scrollIntoView({block: 'center'});
+              }
+            }"""
+        )
+
+    def limpar_resposta(self, texto: str) -> str:
+        """Tira o título do resumo de raciocínio repetido no começo.
+
+        A assinatura é o prefixo que se repete IMEDIATAMENTE (`X` seguido de
+        `X`), o que não acontece em prosa. Exige também que o título termine
+        em pontuação de fim de frase: sem isso, uma resposta que comece
+        repetindo um nome ("João Campos, João Campos...") seria mutilada.
+        """
+        if not texto:
+            return texto
+        for n in range(20, self._titulo_max + 1):
+            cab = texto[:n]
+            if texto[n:2 * n] != cab:
+                continue
+            if not cab.rstrip().endswith((".", "!", "?", ":")):
+                continue
+            # Corta as DUAS cópias: as duas são cabeçalho. A resposta começa
+            # depois da segunda (no dado real, "…probability.…probability.\n"
+            # e então a lista de candidaturas).
+            return texto[2 * n:].lstrip()
+        return texto
 
 
 class ClaudeMomentary(Claude):
@@ -697,6 +1032,8 @@ class ClaudeMomentary(Claude):
 
 class Grok(BaseDriver):
     name = "grok"
+    modelo_selectors = ["button[aria-label='Seleção de modelo']",
+                        "button[aria-label='Model selection']"]
     new_chat_url = "https://grok.com/"
     # Composer é um contenteditable dentro de [data-testid=chat-input] (a
     # <textarea> é oculta, só pra a11y). Enter NÃO submete → usa o botão.
@@ -916,6 +1253,18 @@ class GoogleAIMode(BaseDriver):
         "Good responseBad response",
         "Uma cópia desta conversa",
         "A copy of this conversation",
+        # 4ª variante, achada em 18/09 na auditoria dos textos salvos: o
+        # aria-live do BOTÃO DE COPIAR. São 132 chars fixos em 124 de 439
+        # turnos (28%), colados no fim — "Copiado para a área de
+        # transferênciaFalha ao copiar para a área de transferência. Tente
+        # novamente mais tarde.CopiadoFalha ao copiar". Passou pelas três
+        # correções anteriores porque nenhuma amostra pequena o pegou, e
+        # porque ele não parece rodapé: parece mensagem de erro, e chegou a
+        # ser confundido com bloqueio da plataforma na primeira leitura.
+        "Copiado para a área de transferência",
+        "Copied to clipboard",
+        "Falha ao copiar para a área de transferência",
+        "Failed to copy to clipboard",
     )
     # Rótulos de botão que encostam no fim do texto sem rodapé antes.
     _rotulos_finais = ("Copiar", "Copy", "Saiba mais", "Learn more",
@@ -952,71 +1301,158 @@ class GoogleAIMode(BaseDriver):
 
 
 class Copilot(BaseDriver):
-    """Microsoft Copilot consumer (`copilot.microsoft.com`), conta pessoal.
+    """Microsoft Copilot consumer, conta pessoal.
 
-    Seletores confirmados por inspeção ao vivo (ago/2026): composer é a
-    `textarea#userInput` (`data-testid='composer-input'`, placeholder "Message
-    Copilot"); Enter envia. A resposta do assistente é `[data-testid=
-    'ai-message']`, com o texto limpo em `[data-testid='ai-message-body']` (um
-    por turno). Sem botão de "parar" com seletor estável → detecção de fim por
-    estabilidade de texto (busy vazio).
+    **Mudou de casa em set/2026**: `copilot.microsoft.com` redireciona para
+    `copilot.com`, que é outra aplicação (a base Fluent/M365, classes `fai-`/
+    `fui-`). Nada dos seletores de agosto sobreviveu — o composer era
+    `textarea#userInput` e agora é um `span[role=textbox]`; a resposta era
+    `[data-testid='ai-message']` e agora é `[data-testid='copilot-message-div']`.
+    Os antigos ficam no fim das listas: enquanto o redirecionamento não for
+    universal, uma conta pode cair na UI velha, e o driver tem que funcionar
+    nas duas.
+
+    Confirmado por inspeção ao vivo (18/09/2026, nas duas contas):
+
+    - composer `span#m365-chat-editor-target-element[role=textbox]`; Enter
+      envia, Shift+Enter quebra linha (testado: não submete);
+    - pergunta do usuário em `[data-testid='chatQuestion']`;
+    - resposta em `[data-testid='copilot-message-div']`, com o texto limpo em
+      `[data-testid='markdown-reply']` (**um por turno**, verificado em
+      resposta longa com lista e tabela). Ler o balão inteiro traria os chips
+      de sugestão ("Como funciona a automação?"), que a UI **anexa depois** do
+      fim da resposta;
+    - fim da geração: o próprio balão em streaming carrega
+      `aria-busy="true"` e o perde quando termina. Medido: o atributo cai no
+      mesmo instante em que o texto para de crescer e a barra de ações
+      ("Copiar Resposta") aparece.
+
+    Sobre o PLANO: o botão de upsell (`[data-testid='upgrade-copilot']`, o
+    "Atualizar" no rodapé) **não** indica plano gratuito — ele fica ali também
+    na conta paga (confirmado pelo Julio, 18/09/2026, depois de eu concluir o
+    contrário e errar). O único sinal confiável de limite é a própria
+    mensagem, que está em `capture.BLOCK_MARKERS`: "You've reached your daily
+    limit". Ela também DESABILITA o composer, e é por isso que o sintoma
+    chega como `Locator.click` estourando o prazo ("element is not enabled")
+    em vez de erro de envio.
+
+    Sobre o `aria-busy`: NÃO use `[data-testid='loading-message']` como sinal
+    de ocupado. Ele está presente também com a resposta pronta — é container,
+    não indicador. Um sinal que nunca desliga faria a espera cair sempre no
+    backstop de estabilidade de texto, que é justamente o que trunca resposta
+    com pausa longa no meio do streaming.
     """
 
     name = "copilot"
-    new_chat_url = "https://copilot.microsoft.com/"
+    new_chat_url = "https://copilot.com/chat"
+    modelo_selectors = ["#gptModeSwitcher"]
     composer_selectors = [
-        "textarea#userInput",
+        "#m365-chat-editor-target-element",
+        "[role='textbox'][aria-label*='Copilot']",
+        "textarea#userInput",                      # UI anterior a set/2026
         "textarea[data-testid='composer-input']",
-        "textarea",
     ]
-    response_selector = "[data-testid='ai-message']"
-    content_selector = "[data-testid='ai-message-body']"
-    busy_selectors: list[str] = []      # sem stop-button estável
+    response_selector = "[data-testid='copilot-message-div']"
+    content_selector = "[data-testid='markdown-reply']"
+    user_selector = "[data-testid='chatQuestion']"
+    busy_selectors = [
+        "[aria-busy='true'].fai-CopilotMessage",
+        "[data-testid='copilot-message-div'] [aria-busy='true']",
+    ]
     settle_s = 2.5
-    response_timeout = 180.0
+    response_timeout = 240.0
     start_timeout = 90.0
 
 
 class CopilotMomentary(Copilot):
-    """Copilot em **chat temporário** (não salva no histórico nem usa/atualiza a
-    memória). `open_new_chat` navega para `/chats/temporary`, que abre um chat
-    temporário LIMPO (confirmado: 0 mensagens, botão "Exit temporary chat"
-    presente). Idempotente e isolado por conversa.
+    """Copilot em **chat temporário** (não salva no histórico nem usa/atualiza
+    a memória).
 
-    Se a confirmação falhar, LEVANTA erro (melhor abortar do que rodar em modo
-    normal, salvando no histórico/memória e contaminando o experimento)."""
+    Na UI de set/2026 o modo temporário virou um **toggle** no topo do
+    composer (`button[aria-label='Chat temporário']`), como o do Gemini, em
+    vez da rota `/chats/temporary` de agosto — que hoje redireciona para
+    `/chat` em modo normal. A confirmação é o `aria-pressed="true"` do próprio
+    botão, e o rótulo do composer muda para "Envie uma mensagem temporária ao
+    Copilot".
+
+    A checagem por texto da página ("chat temporário") que a versão anterior
+    usava como último recurso foi REMOVIDA: nesta UI o rótulo do botão contém
+    essa frase mesmo com o toggle desligado, então ela confirmaria modo
+    temporário numa conversa que seria salva no histórico. Falso positivo aqui
+    não dá erro — contamina a base em silêncio.
+
+    Se não conseguir confirmar, LEVANTA (melhor abortar a conversa do que
+    rodar em modo normal, com memória entre conversas).
+    """
 
     name = "copilot_momentary"
-    new_chat_url = "https://copilot.microsoft.com/chats/temporary"
+    new_chat_url = "https://copilot.com/chat"
+    _toggle_selectors = [
+        "button[aria-label='Chat temporário']",
+        "button[aria-label='Temporary chat']",
+        "button[aria-label*='tempor' i]",
+    ]
+
+    def _toggle(self, page):
+        for sel in self._toggle_selectors:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() > 0:
+                    return loc
+            except Exception:
+                continue
+        return None
 
     def _momentary_active(self, page) -> bool:
+        tog = self._toggle(page)
+        if tog is not None:
+            try:
+                if tog.get_attribute("aria-pressed") == "true":
+                    return True
+            except Exception:
+                pass
+        # UI anterior a set/2026: rota dedicada + botão de sair.
         try:
             if page.locator("button[title='Exit temporary chat' i]").count() > 0:
                 return True
         except Exception:
             pass
-        if "/chats/temporary" in (page.url or ""):
-            return True
-        return _has_leaf_text(page, ["temporary chat", "chat temporário"])
+        return "/chats/temporary" in (page.url or "")
+
+    # NB (18/09/2026): houve aqui um `_tirar_modal_invisivel` que removia do
+    # DOM os `[role=dialog]` invisíveis, para destravar o clique no composer.
+    # FOI REVERTIDO: o composer do Copilot é um editor Lexical, e arrancar nós
+    # por baixo do React corrompe a reconciliação — o editor continuava
+    # renderizando e aceitando texto no DOM, mas o modelo interno ficava
+    # vazio, então nem Enter nem o botão "Enviar" postavam nada. O sintoma era
+    # `SendFailed` em todo turno, com o prompt visível parado no composer e o
+    # texto novo se INTERCALANDO caractere a caractere com o anterior.
+    #
+    # A lição: não mexer no DOM de um editor controlado por framework. Quando
+    # o clique for interceptado, a queda para `focus()` de `focar_composer`
+    # resolve sem tocar na árvore.
 
     def open_new_chat(self, page) -> None:
         page.goto(self.new_chat_url, wait_until="domcontentloaded",
                   timeout=60000)
         time.sleep(self.settle_s)
-        deadline = time.time() + 12
-        while time.time() < deadline:
+        capture.first_visible(page, self.composer_selectors, timeout=30)
+        last_err = None
+        for _ in range(4):
             if self._momentary_active(page):
-                # garante o composer presente antes de retornar
-                try:
-                    capture.first_visible(page, self.composer_selectors,
-                                          timeout=10)
-                except Exception:
-                    pass
                 return
-            time.sleep(0.4)
+            tog = self._toggle(page)
+            if tog is None:
+                last_err = "botão de chat temporário não encontrado"
+            else:
+                try:
+                    tog.click(timeout=5000)
+                except Exception as e:
+                    last_err = repr(e)
+            time.sleep(1.5)
         raise RuntimeError(
-            "Copilot: chat temporário não confirmado (/chats/temporary) — "
-            "abortando para não salvar no histórico/memória"
+            "Copilot: chat temporário não confirmado (aria-pressed) — "
+            f"abortando para não salvar no histórico/memória ({last_err})"
         )
 
 
@@ -1067,6 +1503,11 @@ class WhatsAppMetaAI(BaseDriver):
     # filtro de "mensagem recebida". Se capturados, viram resposta falsa
     # (gravada com ok=True, 8 chars) — 21% dos turnos da coleta de ago/2026
     # até isto ser corrigido. Ignorá-los faz o laço CONTINUAR esperando.
+    # Quanto tempo o texto precisa ficar parado para a resposta ser dada por
+    # pronta. Eram 3 s, curtos demais para uma plataforma cujo turno leva 100 s
+    # e cujo balão cresce em blocos: bastava uma pausa de 3 s no meio para a
+    # captura fechar cedo. Ver a nota em `submit`.
+    _estabilidade_s = 8.0
     _placeholders = {"Thinking", "Typing…", "Typing...",
                      "Digitando…", "Digitando..."}
 
@@ -1089,14 +1530,39 @@ class WhatsAppMetaAI(BaseDriver):
         cada uma, e a captura guardava só a resposta da última. Atingia 28,7%
         dos turnos — justamente os de DUAS perguntas, que o instrumento cria de
         propósito. Shift+Enter insere a quebra sem enviar."""
-        box = capture.first_visible(page, self.composer_selectors)
-        box.click()
+        capture.focar_composer(page, self.composer_selectors)
         for i, linha in enumerate(text.split("\n")):
             if i:
                 page.keyboard.press("Shift+Enter")
             if linha:
                 self._digitar(page, linha)
         page.keyboard.press("Enter")
+
+    def carga_do_chat(self, page) -> int | None:
+        """Quantas mensagens estão RENDERIZADAS no chat agora.
+
+        CUIDADO com o nome: isto NÃO é o tamanho do histórico. O WhatsApp Web
+        virtualiza a lista — as bolhas entram e saem do DOM conforme a rolagem
+        —, então a contagem fica na casa da dezena por mais cheio que o chat
+        esteja. Medido em 20/09/2026: 7 mensagens renderizadas depois de 86
+        conversas coletadas sem limpeza. Eu documentei este campo como
+        "quantas mensagens existem no chat" e estava errado; é a janela
+        renderizada, e é a mesma virtualização que já obrigou a detecção de
+        resposta a ser por `data-id` em vez de por contagem.
+
+        Serve para depurar a captura (janela vazia = página ainda montando),
+        não para medir acúmulo. O acúmulo se mede pelo número de conversas
+        desde a última limpeza — ver `limpezas_whatsapp.jsonl` na pasta da
+        rodada.
+
+        O efeito do acúmulo é real e está medido: a mediana do eixo
+        integridade cai de ~2.000 para ~640 chars nas janelas carregadas e
+        volta ao normal na hora em que o chat é limpo.
+        """
+        try:
+            return page.locator("[data-id]").count()
+        except Exception:
+            return None
 
     def reset(self, page) -> None:
         """Zera a memória do Meta AI e espera a confirmação chegar."""
@@ -1205,8 +1671,25 @@ class WhatsAppMetaAI(BaseDriver):
                   for (const r of main.querySelectorAll('div[role=row]')) {
                     const idEl = r.querySelector('[data-id]');
                     const id = idEl ? (idEl.getAttribute('data-id') || '') : '';
+                    // O ícone de status de entrega (relógio/check/check duplo)
+                    // só existe em mensagem ENVIADA, e existe desde o instante
+                    // em que ela aparece na tela. É o único marcador de direção
+                    // disponível enquanto a entrega está PENDENTE: nesse estado
+                    // o `data-pre-plain-text` ainda não foi colado no balão e o
+                    // id não tem prefixo `true_`, então a nossa própria
+                    // mensagem passava pelo filtro de "recebida" e podia ser
+                    // capturada como se fosse a resposta do Meta AI. Não
+                    // aconteceu na coleta (nenhum turno das 25.557 tem eco do
+                    // prompt), porque a entrega era instantânea; apareceu em
+                    // 22/09/2026, com o WhatsApp Web desconectado do telefone
+                    // ("Computer not connected"), quando toda mensagem fica
+                    // pendente.
+                    const status = r.querySelector(
+                      '[data-icon^="wds-ic-status"], [data-icon^="wds-ic-read"],' +
+                      '[data-icon^="wds-ic-check"], [data-icon^="wds-ic-dblcheck"]');
                     const outgoing = id.startsWith('true_') ||
-                      !!r.querySelector('.copyable-text[data-pre-plain-text]');
+                      !!r.querySelector('.copyable-text[data-pre-plain-text]') ||
+                      !!status;
                     if (outgoing) continue;              // enviada (usuário)
                     const cop = r.querySelector('.copyable-text.selectable-text')
                              || r.querySelector('span.selectable-text');
@@ -1242,20 +1725,31 @@ class WhatsAppMetaAI(BaseDriver):
                 pass
             self._scroll_to_bottom(page)  # mantém os balões novos renderizados
             msgs = self._incoming_msgs(page)
-            # balão recebido mais recente cujo id NÃO existia antes do envio
-            newmsg = None
-            for m in reversed(msgs):
-                if (m["id"] and m["id"] not in before
-                        and (m["t"] or "").strip() not in self._placeholders):
-                    newmsg = m
-                    break
-            t = newmsg["t"] if (newmsg and newmsg["t"]) else ""
+            # TODOS os balões cujo id não existia antes do envio, na ordem em
+            # que estão na tela — não só o último.
+            #
+            # Pegar só o último perdia resposta: o texto gravado terminava em
+            # "…para 25 de" e o artefato mostrava "outubro. Você pode
+            # acompanhar…" logo adiante. 50 turnos assim em 20/09/2026, com
+            # mediana de 136 chars perdidos. Duas causas somadas: o Meta AI
+            # às vezes parte a resposta em mais de um balão, e o balão em si
+            # ainda cresce depois de aparecer.
+            # Descartar o ECO do próprio prompt é redundante com a detecção
+            # de direção em `_incoming_msgs`, e é de propósito: o marcador de
+            # direção é seletor de UI (volátil), este teste não depende do DOM.
+            # Capturar o prompt como resposta é o pior defeito possível aqui —
+            # grava com ok=True e passa pelo juiz como se fosse fala do modelo.
+            novos = [m for m in msgs
+                     if m["id"] and m["id"] not in before
+                     and (m["t"] or "").strip() not in self._placeholders
+                     and (m["t"] or "").strip() != prompt.strip()]
+            t = "\n".join(m["t"] for m in novos if m["t"]).strip()
             if t:
                 saw_new = True
                 if t == last_text:
                     if since is None:
                         since = time.time()
-                    elif time.time() - since >= 3.0:
+                    elif time.time() - since >= self._estabilidade_s:
                         break
                 else:
                     since = None

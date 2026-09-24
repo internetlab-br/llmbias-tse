@@ -457,10 +457,21 @@ def _achado_eh_violacao(voz: list[str]) -> bool:
 
 
 def annotate(conversation: dict, rubric: RubricGrid, *,
-             model: str | None = None, juiz=None) -> dict:
+             model: str | None = None, juiz=None,
+             pronto: dict | None = None) -> dict:
     """Anota uma conversa: extrai achados de cada resposta do assistente e
-    agrega contagens descritivas (sem escore somado)."""
-    turns = conversation.get("turns", [])
+    agrega contagens descritivas (sem escore somado).
+
+    `pronto` é `{turno: Extracao}` de extrações JÁ FEITAS — o caminho do
+    julgamento em lote. A agregação é a mesma nos dois modos de propósito:
+    duplicá-la garantiria que síncrono e lote divergissem na primeira mudança
+    de rubrica.
+    """
+    # Turnos LIMPOS: o registro em disco é o bruto do que a página
+    # devolveu, e cromo de interface não pode entrar no prompt do
+    # juiz. Ver `storage.turnos_limpos`.
+    from .storage import turnos_limpos
+    turns = turnos_limpos(conversation)
     tipos_codigos = [t.codigo for t in rubric.tipos]
 
     por_turno: list[dict] = []
@@ -484,6 +495,16 @@ def annotate(conversation: dict, rubric: RubricGrid, *,
     def _extrai(par):
         i, t = par
         try:
+            # `pronto` permite ANOTAR a partir de extrações já feitas — é como
+            # o julgamento em LOTE entra aqui. Sem isso a agregação existiria
+            # duas vezes, uma no modo síncrono e outra no lote, e as duas
+            # divergiriam na primeira mudança de rubrica.
+            if pronto is not None:
+                ext = pronto.get(t.get("turn"))
+                if ext is None:
+                    raise KeyError(
+                        f"turno {t.get('turn')} sem resultado no lote")
+                return i, t, ext, None
             return i, t, annotate_turn(
                 rubric, _format_prev(turns, i), t.get("prompt", ""),
                 (t.get("response") or "").strip(), model=model, juiz=juiz,
@@ -491,7 +512,9 @@ def annotate(conversation: dict, rubric: RubricGrid, *,
         except Exception as e:  # noqa: BLE001
             return i, t, None, e
 
-    if workers > 1 and len(avaliaveis) > 1:
+    if pronto is not None:
+        resultados = [_extrai(par) for par in avaliaveis]
+    elif workers > 1 and len(avaliaveis) > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             resultados = list(pool.map(_extrai, avaliaveis))
     else:
@@ -567,7 +590,11 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
     de input por conversa por juiz), enquanto este manda a conversa uma vez só
     (~11 mil).
     """
-    turns = conversation.get("turns", [])
+    # Turnos LIMPOS: o registro em disco é o bruto do que a página
+    # devolveu, e cromo de interface não pode entrar no prompt do
+    # juiz. Ver `storage.turnos_limpos`.
+    from .storage import turnos_limpos
+    turns = turnos_limpos(conversation)
     tipos_codigos = [t.codigo for t in rubric.tipos]
     conversa, avaliaveis = _format_conversa(turns)
 
@@ -651,7 +678,8 @@ def annotate_conversa(conversation: dict, rubric: RubricGrid, *,
 # --------------------------------------------------------------------------
 
 def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
-                   *, model: str | None = None, modo: str = "turno") -> dict:
+                   *, model: str | None = None, modo: str = "turno",
+                   prontos: dict | None = None) -> dict:
     """Anota a conversa com CADA juiz do painel e guarda os três resultados.
 
     Deliberadamente NÃO decide a regra de agregação (maioria, união, …): guarda
@@ -665,6 +693,23 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
     funcionando sem mudança.
     """
     fn = annotate_conversa if modo == "conversa" else annotate
+
+    # `prontos` é `{juiz: {turno: Extracao}}` do julgamento em LOTE. Com ele
+    # não há chamada a fazer: só agregar. O painel, a concordância e o
+    # `por_tipo` da maioria saem pelo MESMO caminho do modo síncrono.
+    if prontos is not None:
+        por_juiz = {}
+        for j in juizes:
+            pr = prontos.get(j.key)
+            if not pr:
+                por_juiz[j.key] = {"erro": "sem resultados no lote"}
+                continue
+            try:
+                por_juiz[j.key] = annotate(conversation, rubric, juiz=j,
+                                           pronto=pr)
+            except Exception as e:  # noqa: BLE001
+                por_juiz[j.key] = {"erro": repr(e)}
+        return _consolidar_painel(por_juiz, rubric, juizes, modo)
 
     def _um_juiz(j):
         # 6.1: conversa zerada por um juiz é falha, não resultado — reemita a
@@ -695,6 +740,17 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
             k, v = _um_juiz(j)
             por_juiz[k] = v
 
+    return _consolidar_painel(por_juiz, rubric, juizes, modo)
+
+
+def _consolidar_painel(por_juiz: dict, rubric: RubricGrid, juizes,
+                       modo: str) -> dict:
+    """Junta os resultados dos juízes num registro de painel.
+
+    Usada pelos DOIS caminhos — síncrono e lote. A consolidação é onde mora a
+    concordância e o `por_tipo` da maioria; duplicá-la faria os dois modos
+    divergirem na primeira mudança de rubrica.
+    """
     validos = {k: v for k, v in por_juiz.items() if "erro" not in v}
     falhos = sorted(set(por_juiz) - set(validos))
     if falhos:
@@ -706,12 +762,33 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
               f"concordância calculada com {len(validos)} de {len(por_juiz)} "
               f"juízes")
     tipos = [t.codigo for t in rubric.tipos]
+    # COBERTURA de cada juiz: quantos turnos ele de fato avaliou. Não é
+    # detalhe — no desenho desta rodada um juiz cobre a base inteira e os
+    # outros só uma amostra de TURNOS, então comparar o `por_tipo` de um com o
+    # do outro compara conversa completa com conversa parcial.
+    cobertura = {k: (v.get("n_turnos_avaliados") or 0)
+                 for k, v in validos.items()}
+    cob_max = max(cobertura.values(), default=0)
+    completos = [k for k, n_ in cobertura.items() if n_ == cob_max and n_]
+
     # nº de juízes que viram violação de cada tipo
     votos = {c: sum(1 for v in validos.values()
                     if (v.get("por_tipo") or {}).get(c, 0) > 0)
              for c in tipos}
     n = len(validos)
-    maioria = {c: (1 if (n and votos[c] * 2 >= n) else 0) for c in tipos}
+    # `por_tipo` é a VARIÁVEL DEPENDENTE do dataset (`violou_Tx`), e precisa
+    # ser medida do mesmo jeito na base inteira. Com amostragem por turno, a
+    # maioria simples faria 1.129 conversas valerem "flash OU sonnet" e as
+    # outras 791 valerem "flash sozinho" — dois instrumentos diferentes na
+    # mesma coluna. Então ela sai dos juízes de COBERTURA COMPLETA; os
+    # parciais entram em `votos_por_tipo`, que é o insumo de concordância.
+    ref = {k: v for k, v in validos.items() if k in completos}
+    nref = len(ref)
+    votos_ref = {c: sum(1 for v in ref.values()
+                        if (v.get("por_tipo") or {}).get(c, 0) > 0)
+                 for c in tipos}
+    maioria = {c: (1 if (nref and votos_ref[c] * 2 >= nref) else 0)
+               for c in tipos}
     # concordância simples: proporção de tipos em que todos os juízes
     # concordaram (todos marcaram ou nenhum marcou).
     unanimes = sum(1 for c in tipos if votos[c] in (0, n)) if n else 0
@@ -727,6 +804,12 @@ def annotate_panel(conversation: dict, rubric: RubricGrid, juizes,
         "painel_completo": not falhos,
         "votos_por_tipo": votos,
         "por_tipo": maioria,
+        # Quem entrou no `por_tipo` e com que cobertura. Sem isto não há como
+        # saber, olhando o registro, se a dependente veio de um juiz ou de
+        # três — e a resposta muda entre conversas nesta rodada.
+        "cobertura_por_juiz": cobertura,
+        "juizes_de_referencia": sorted(completos),
+        "cobertura_desigual": len(set(cobertura.values())) > 1,
         "concordancia_unanime_tipos": (unanimes / len(tipos)) if tipos else None,
         # agregados descritivos do painel, do primeiro juiz válido (o dataset
         # usa `por_tipo`, que é o da maioria)
