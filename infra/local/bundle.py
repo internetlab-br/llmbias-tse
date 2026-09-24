@@ -96,8 +96,18 @@ def main() -> int:
     for nome in ("dataset.csv", "dataset.jsonl", "dataset.parquet"):
         if (run / nome).exists():
             shutil.copy2(run / nome, base / "processados" / nome)
-    if (run / "lotes_juiz.json").exists():
-        shutil.copy2(run / "lotes_juiz.json", base / "plano" / "lotes_juiz.json")
+    # O painel (flash + sonnet + luna) fica em pasta própria: nas conversas da
+    # amostra ele muda a dependente (maioria de três), e `anotacoes/` precisa
+    # continuar sendo SÓ o flash, que é de onde sai `violou_Tx`.
+    painel = run / "annotations_painel"
+    n_painel = 0
+    if painel.exists() and not args.sem_anotacoes:
+        n_painel = sum(1 for f in painel.glob("*.json")
+                       if len(json.loads(f.read_text(encoding="utf-8"))
+                              .get("por_juiz", {})) > 1)
+        shutil.copytree(painel, base / "anotacoes_painel")
+    for plano_lotes in sorted(run.glob("lotes_juiz*.json")):
+        shutil.copy2(plano_lotes, base / "plano" / plano_lotes.name)
     if (run / "recuperados.jsonl").exists():
         shutil.copy2(run / "recuperados.jsonl",
                      base / "brutos" / "recuperados.jsonl")
@@ -226,34 +236,33 @@ Pacote gerado em {datetime.now(timezone.utc).isoformat(timespec="seconds")}.
 
 ## Estado da coleta
 
-**Encerrada.** Voto e integridade fecharam 120/120 nas oito plataformas. O
-gênero fechou em 120 em seis delas; o Grok parou em 103 (limite semanal da
-conta) e o WhatsApp em 100 (o Meta AI parou de responder — a não-resposta
-silenciosa, com as conversas afetadas abortadas em vez de gravadas pela
-metade).
+**Encerrada, completa.** 120 conversas por plataforma em cada eixo, nas oito
+plataformas: 2.880 conversas. O gênero do Grok e do WhatsApp foi fechado em
+23/09/2026, depois de uma pausa (limite semanal do Grok; no WhatsApp, os
+containers ficaram sem DNS quando a máquina de coleta mudou de rede). Essas
+37 conversas saem por outro IP — `ip_saida` registra o de cada conversa.
 
-## O que ainda NÃO está fechado
+## Captura e julgamento: o que saber antes de analisar
 
 1. **{com_defeito} conversas têm captura defeituosa**, marcadas na coluna
    `defeitos` de `conversas.csv` e `defeito` de `turnos.csv`. São turnos do
    WhatsApp que acabam no meio da frase e cuja continuação NÃO estava no
    artefato (o DOM também estava cortado); os demais foram recuperados — ver
    `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
-   veio. Só recoleta resolveria, e a plataforma está bloqueada.
-2. **O juiz deste pacote é só o `flash`** (gemini-3.7-flash), que julgou
-   TODOS os turnos de TODAS as conversas de voto e integridade — cobertura
-   completa, que é o que a variável dependente exige. São {n_anot}
-   anotação(ões), e `processados/dataset.csv` traz as colunas `violou_Tx`
-   derivadas delas.
+   veio. Só recoleta resolveria, e optamos por não recoletar (custo alto para poucos turnos).
+2. **A variável dependente vem só do `flash`** (gemini-3.7-flash), que julgou
+   TODOS os turnos de TODAS as conversas dos três eixos — cobertura completa,
+   que é o que a dependente exige. São {n_anot} anotação(ões) em `anotacoes/`,
+   e `processados/dataset.csv` traz as colunas `violou_Tx` derivadas delas.
 
-   **Não há capítulo de concordância**, porque concordância precisa de mais
-   de um juiz: `sonnet` e `luna` estão rodando sobre uma amostra de 10%
-   estratificada por plataforma × eixo e sorteada por CONVERSA (192
-   conversas, todos os turnos de cada). Entram em entrega separada. Cada
-   anotação declara `cobertura_por_juiz` e `juizes_de_referencia`, então dá
-   para verificar de quem veio a dependente sem depender desta nota.
-
-3. **O gênero ainda não foi julgado.**
+3. **Concordância: `anotacoes_painel/`.** `sonnet` e `luna` julgaram uma
+   amostra de 10% estratificada por plataforma × eixo e sorteada por
+   CONVERSA ({n_painel} conversas, 12 por plataforma × eixo, todos os turnos
+   de cada). Nessas conversas a anotação traz `por_juiz` com os três; nas
+   demais, só o flash. `por_tipo` do painel é a maioria de três e NÃO é a
+   dependente do dataset — use-a só para medir concordância. Cada anotação
+   declara `cobertura_por_juiz` e `juizes_de_referencia`. Os lotes de cada
+   juiz estão em `plano/lotes_juiz*.json` (voto+integridade e gênero).
 
 ## Ressalvas para a análise
 
