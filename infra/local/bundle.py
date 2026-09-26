@@ -106,8 +106,12 @@ def main() -> int:
                        if len(json.loads(f.read_text(encoding="utf-8"))
                               .get("por_juiz", {})) > 1)
         shutil.copytree(painel, base / "anotacoes_painel")
-    for plano_lotes in sorted(run.glob("lotes_juiz*.json")):
-        shutil.copy2(plano_lotes, base / "plano" / plano_lotes.name)
+    # O julgamento em si: estado dos lotes, resposta bruta de cada juiz por
+    # conversa, a auditoria de completude e `anotacoes.jsonl` no formato da
+    # rodada 1 (uma linha por conversa, `por_juiz[j].turnos` por turno).
+    julg = run / "julgamento_conversa"
+    if julg.exists() and not args.sem_anotacoes:
+        shutil.copytree(julg, base / "julgamento")
     if (run / "recuperados.jsonl").exists():
         shutil.copy2(run / "recuperados.jsonl",
                      base / "brutos" / "recuperados.jsonl")
@@ -250,19 +254,27 @@ containers ficaram sem DNS quando a máquina de coleta mudou de rede). Essas
    artefato (o DOM também estava cortado); os demais foram recuperados — ver
    `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
    veio. Só recoleta resolveria, e optamos por não recoletar (custo alto para poucos turnos).
-2. **A variável dependente vem só do `flash`** (gemini-3.7-flash), que julgou
-   TODOS os turnos de TODAS as conversas dos três eixos — cobertura completa,
-   que é o que a dependente exige. São {n_anot} anotação(ões) em `anotacoes/`,
-   e `processados/dataset.csv` traz as colunas `violou_Tx` derivadas delas.
+2. **Como o juiz rodou: conversa inteira na entrada, saída estruturada por
+   turno** — o mesmo desenho e o mesmo código da rodada 1
+   (`scripts/julgar_lote.py --modo conversa`, prompt idêntico byte a byte).
+   Uma chamada por conversa; o juiz devolve os achados marcados com o turno
+   e uma entrada de resistência para CADA turno. `julgamento/auditoria.txt`
+   confere, juiz a juiz, que nenhuma resposta esqueceu turno nem apontou
+   turno inexistente (zero casos) e quantos trechos citados não aparecem
+   literalmente no turno indicado.
 
-3. **Concordância: `anotacoes_painel/`.** `sonnet` e `luna` julgaram uma
-   amostra de 10% estratificada por plataforma × eixo e sorteada por
-   CONVERSA ({n_painel} conversas, 12 por plataforma × eixo, todos os turnos
-   de cada). Nessas conversas a anotação traz `por_juiz` com os três; nas
-   demais, só o flash. `por_tipo` do painel é a maioria de três e NÃO é a
-   dependente do dataset — use-a só para medir concordância. Cada anotação
-   declara `cobertura_por_juiz` e `juizes_de_referencia`. Os lotes de cada
-   juiz estão em `plano/lotes_juiz*.json` (voto+integridade e gênero).
+3. **A variável dependente vem só do `flash`** (gemini-3.7-flash), que julgou
+   as {n_anot} conversas dos três eixos. `anotacoes/` e as colunas `violou_Tx`
+   de `processados/dataset.csv` saem dele.
+
+4. **Concordância: `anotacoes_painel/`** e `julgamento/anotacoes.jsonl`.
+   `sonnet` (claude-sonnet-5) e `luna` (gpt-5.6-luna) julgaram uma amostra
+   de 10% estratificada por plataforma × eixo e sorteada por CONVERSA
+   ({n_painel} conversas, 12 por plataforma × eixo). Em `anotacoes_painel/`,
+   `por_tipo` é o do flash; a maioria de três está em `por_tipo_maioria` e os
+   votos em `votos_por_tipo` — use-os só para medir concordância. Em
+   `julgamento/anotacoes.jsonl` os juízes aparecem como `gemini`, `sonnet` e
+   `gpt`, os nomes da rodada 1.
 
 ## Ressalvas para a análise
 
