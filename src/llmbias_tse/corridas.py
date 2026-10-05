@@ -87,6 +87,15 @@ CALENDARIO_2026 = Calendario(
     segundo_turno="25 de outubro de 2026",
 )
 
+# Rodada 3 (entre os turnos). `hoje` É A DATA DE INÍCIO DA COLETA e precisa
+# ser confirmada quando a rodada for disparada; 05/10 é a data do smoke.
+CALENDARIO_RODADA3 = Calendario(
+    ano=2026,
+    hoje="5 de outubro de 2026",
+    primeiro_turno="4 de outubro de 2026",
+    segundo_turno="25 de outubro de 2026",
+)
+
 
 # --------------------------------------------------------------------------
 # Cargos em disputa
@@ -219,6 +228,14 @@ UFS: tuple[UF, ...] = (
 
 UFS_POR_SIGLA: dict[str, UF] = {u.sigla: u for u in UFS}
 
+# As UFs cujas corridas para GOVERNADOR foram ao segundo turno em 2026,
+# conforme a apuração do primeiro turno (04/10/2026): seis estados e o DF.
+# Confirmado pela equipe em 05/10/2026 contra a cobertura da apuração
+# (Agência Brasil, Agência Senado). Só o desenho `segundo_turno` usa esta
+# tabela; os demais seguem com as 27 UFs.
+UFS_SEGUNDO_TURNO: tuple[str, ...] = ("AC", "AM", "DF", "ES", "RJ", "RN",
+                                      "TO")
+
 
 # --------------------------------------------------------------------------
 # Desenhos de sorteio (decisão 2 da nota — em aberto)
@@ -234,6 +251,10 @@ DESENHOS: dict[str, tuple[str, ...]] = {
     # (b) os cinco cargos em disputa
     "cinco_cargos": ("presidente", "governador", "senador",
                      "deputado_federal", "deputado_estadual"),
+    # (d) rodada 3, entre os turnos: só as corridas que foram a segundo
+    # turno em 04/10/2026 — a presidencial e os sete governos de
+    # `UFS_SEGUNDO_TURNO`. O Senado sai inteiro (não tem segundo turno).
+    "segundo_turno": ("presidente", "governador"),
 }
 
 # Decisão da equipe em 15/09/2026, A CONFIRMAR pela pesquisadora que seguir com
@@ -278,12 +299,22 @@ class Corrida:
 
     cargo: str
     uf: str | None = None
+    # Rodada 3: a corrida é o SEGUNDO TURNO da disputa, e a descrição que
+    # entra no prompt precisa dizer isso — entre os turnos, "a eleição para
+    # governador do Rio" sem qualificador deixaria ambíguo de que fase a
+    # conversa trata.
+    segundo_turno: bool = False
 
     @property
     def descricao(self) -> str:
         """O texto que entra no `{corrida atribuída}` do Bloco 1."""
         uf = UFS_POR_SIGLA.get(self.uf) if self.uf else None
-        return CARGOS[self.cargo].descricao(uf)
+        base = CARGOS[self.cargo].descricao(uf)
+        if self.segundo_turno:
+            # todos os templates começam com "a eleição..." -> "o segundo
+            # turno da eleição..."
+            return "o segundo turno d" + base
+        return base
 
     def colunas(self) -> dict:
         """As colunas da base. `corrida` é o rótulo curto, para agrupar."""
@@ -318,16 +349,41 @@ def _exigir_tabela_ufs(cargo_key: str, desenho: str) -> None:
         )
 
 
+def _ufs_do_desenho(cargo_key: str, desenho: str) -> tuple[UF, ...]:
+    """As UFs que o desenho admite para os cargos que exigem UF.
+
+    O `segundo_turno` usa só as UFs de `UFS_SEGUNDO_TURNO` — e aborta se a
+    tabela estiver vazia ou citar sigla desconhecida, pela mesma razão da
+    guarda acima: resultado de apuração é dado da equipe, nunca invenção.
+    """
+    _exigir_tabela_ufs(cargo_key, desenho)
+    if desenho != "segundo_turno":
+        return UFS
+    if not UFS_SEGUNDO_TURNO:
+        raise ValueError(
+            "o desenho 'segundo_turno' está sem UFs: preencha "
+            "`corridas.UFS_SEGUNDO_TURNO` com a apuração do 1º turno antes "
+            "de rodar."
+        )
+    fora = [s for s in UFS_SEGUNDO_TURNO if s not in UFS_POR_SIGLA]
+    if fora:
+        raise ValueError(
+            f"`UFS_SEGUNDO_TURNO` cita siglas desconhecidas: {fora}"
+        )
+    return tuple(u for u in UFS if u.sigla in UFS_SEGUNDO_TURNO)
+
+
 def celulas(desenho: str = DESENHO_PADRAO) -> tuple[Corrida, ...]:
     """Todas as corridas possíveis do desenho — o denominador da cobertura."""
+    st = desenho == "segundo_turno"
     out: list[Corrida] = []
     for key in _cargos_do_desenho(desenho):
         cargo = CARGOS[key]
         if not cargo.exige_uf:
-            out.append(Corrida(key))
+            out.append(Corrida(key, segundo_turno=st))
             continue
-        _exigir_tabela_ufs(key, desenho)
-        out.extend(Corrida(key, u.sigla) for u in UFS)
+        out.extend(Corrida(key, u.sigla, segundo_turno=st)
+                   for u in _ufs_do_desenho(key, desenho))
     return tuple(out)
 
 
@@ -349,15 +405,16 @@ def _quotas(total: int, n_grupos: int, rng: random.Random) -> list[int]:
 def _fila_por_cargo(n: int, cargos: Sequence[str], desenho: str,
                     rng: random.Random) -> list[Corrida]:
     """Cada CARGO com o mesmo N; dentro do cargo, as UFs repartem por igual."""
+    st = desenho == "segundo_turno"
     fila: list[Corrida] = []
     for key, quota in zip(cargos, _quotas(n, len(cargos), rng)):
         cargo = CARGOS[key]
         if not cargo.exige_uf:
-            fila.extend([Corrida(key)] * quota)
+            fila.extend([Corrida(key, segundo_turno=st)] * quota)
             continue
-        _exigir_tabela_ufs(key, desenho)
-        for uf, q in zip(UFS, _quotas(quota, len(UFS), rng)):
-            fila.extend([Corrida(key, uf.sigla)] * q)
+        ufs = _ufs_do_desenho(key, desenho)
+        for uf, q in zip(ufs, _quotas(quota, len(ufs), rng)):
+            fila.extend([Corrida(key, uf.sigla, segundo_turno=st)] * q)
     return fila
 
 
@@ -380,12 +437,14 @@ def sortear_corrida(profile_id: str, seed: int = 2026,
     permite acrescentar perfis a uma rodada sem mexer nos que já existem.
     """
     desenho_cargos = _cargos_do_desenho(desenho)
+    st = desenho == "segundo_turno"
     rng = _rng_for(seed, "corrida", desenho, profile_id)
     cargo = CARGOS[rng.choice(list(desenho_cargos))]
     if not cargo.exige_uf:
-        return Corrida(cargo=cargo.key)
-    _exigir_tabela_ufs(cargo.key, desenho)
-    return Corrida(cargo=cargo.key, uf=rng.choice(list(UFS)).sigla)
+        return Corrida(cargo=cargo.key, segundo_turno=st)
+    ufs = _ufs_do_desenho(cargo.key, desenho)
+    return Corrida(cargo=cargo.key, uf=rng.choice(list(ufs)).sigla,
+                   segundo_turno=st)
 
 
 def sortear_corridas(profile_ids: Sequence[str], seed: int = 2026,
