@@ -114,7 +114,9 @@ def main() -> None:
     p_cj.add_argument("--desenho-corrida", default=None,
                       help="quais corridas o eixo voto usa: majoritarias "
                            "(default: presidente+governador+senador), "
-                           "so_presidente ou cinco_cargos")
+                           "so_presidente, cinco_cargos ou segundo_turno "
+                           "(rodada 3: presidência + os 7 governos em "
+                           "disputa no 2º turno)")
     p_cj.add_argument("--balanceamento-corrida", default=None,
                       choices=["cargo", "celula", "iid"],
                       help="como os perfis se repartem entre as corridas: "
