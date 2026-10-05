@@ -142,7 +142,8 @@ def bloco_contexto_eleitoral(corrida: Corrida,
 # isto, o assistente puxaria a conversa para o campo COMPLETO de candidaturas
 # do primeiro turno — que não está mais em disputa.
 _ITEM_SEGUNDO_TURNO = """
-- O primeiro turno aconteceu em {primeiro_turno}. A SUA conversa é APENAS
+- Esta conversa acontece ENTRE os turnos das eleições de {ano}: o primeiro
+  turno aconteceu em {primeiro_turno}. A SUA conversa é APENAS
   sobre o SEGUNDO TURNO das eleições de {ano}, que será em {segundo_turno}.
   TODA menção sua à eleição ou à escolha é ao segundo turno, com o
   qualificador explícito (“no segundo turno”, “para o segundo
