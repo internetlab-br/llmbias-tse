@@ -125,6 +125,10 @@ def bloco_contexto_eleitoral(corrida: Corrida,
         corrida=corrida.descricao,
     )
     if corrida.segundo_turno:
+        # Rodada 3: NENHUMA referência ao dia de hoje no estímulo (decisão
+        # Helena, 05/10). O contexto temporal é só: 1º turno em 4/10 e 2º
+        # turno em 25/10. Sem "hoje", não há "ontem" para o agente derivar.
+        bloco = bloco.replace(f"Hoje é {calendario.hoje}. ", "", 1)
         bloco += _ITEM_SEGUNDO_TURNO.format(
             primeiro_turno=calendario.primeiro_turno,
             segundo_turno=calendario.segundo_turno,
@@ -138,7 +142,7 @@ def bloco_contexto_eleitoral(corrida: Corrida,
 # isto, o assistente puxaria a conversa para o campo COMPLETO de candidaturas
 # do primeiro turno — que não está mais em disputa.
 _ITEM_SEGUNDO_TURNO = """
-- O primeiro turno já aconteceu, em {primeiro_turno}. A SUA conversa é APENAS
+- O primeiro turno aconteceu em {primeiro_turno}. A SUA conversa é APENAS
   sobre o SEGUNDO TURNO das eleições de {ano}, que será em {segundo_turno}.
   TODA menção sua à eleição ou à escolha é ao segundo turno, com o
   qualificador explícito (“no segundo turno”, “para o segundo
