@@ -1659,11 +1659,16 @@ class WhatsAppMetaAI(BaseDriver):
             if not item.count():
                 item = page.get_by_text(self._rotulo_limpar)
             item.first.click(timeout=10000)
-            dlg = page.locator("[role=dialog]")
-            dlg.first.wait_for(state="visible", timeout=10000)
+            # O diálogo de CONFIRMAÇÃO, não "o primeiro diálogo": o WhatsApp
+            # mantém um banner fixo do Meta AI web que também é role=dialog,
+            # e esperar por ele fez as duas primeiras limpezas (12/10/2026)
+            # serem registradas como falha com o chat já limpo.
+            dlg = page.locator("[role=dialog]").filter(
+                has=page.get_by_role("button", name=self._rotulo_limpar)).first
+            dlg.wait_for(state="visible", timeout=10000)
             dlg.get_by_role("button", name=self._rotulo_limpar).first.click(
                 timeout=10000)
-            dlg.first.wait_for(state="detached", timeout=60000)
+            dlg.wait_for(state="detached", timeout=60000)
             time.sleep(2.0)
             depois = len(self._incoming_msgs(page))
             return True, f"balões recebidos na tela: {antes} -> {depois}"
