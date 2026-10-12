@@ -1572,7 +1572,107 @@ class WhatsAppMetaAI(BaseDriver):
         if "web.whatsapp.com" not in page.url:
             page.goto(self.new_chat_url, wait_until="domcontentloaded", timeout=90000)
         capture.first_visible(page, self.composer_selectors, timeout=30)
+        self._limpar_se_preciso(page)
         self.reset(page)
+
+    # LIMPEZA DO CHAT a cada N conversas da estação. O chat do Meta AI é único
+    # e acumula: na rodada 2 a latência por turno subiu de 43 s para 239 s em
+    # 121 conversas, e a mediana do eixo integridade caiu de ~1.800 para ~500
+    # chars nas janelas carregadas — e voltava ao normal na hora da limpeza.
+    # Lá a limpeza era feita à mão (`limpezas_whatsapp.jsonl`, 4 vezes);
+    # aqui é automática, sempre ENTRE conversas (nunca no meio de uma), e cada
+    # uma é registrada no mesmo arquivo, que vai para o bundle.
+    #
+    # `LLMBIAS_WA_LIMPAR_A_CADA=0` desliga. O contador vive em disco, na pasta
+    # de controle da rodada, para sobreviver ao runner, que é um processo novo
+    # a cada lote.
+    limpar_a_cada = int(os.environ.get("LLMBIAS_WA_LIMPAR_A_CADA", "20"))
+    _rotulo_limpar = re.compile(r"^\s*(Clear chat|Limpar conversa)\s*$", re.I)
+    _menu_chat = ("#main header [aria-label='Menu'], "
+                  "#main header [aria-label='Mais opções'], "
+                  "#main header [aria-label='More options']")
+
+    def _contador_path(self):
+        from pathlib import Path
+        ev = os.environ.get("LLMBIAS_EVENTS")
+        if not ev:
+            return None
+        sessao = os.environ.get("SESSAO") or self.name
+        return Path(ev).parent / "control" / f"{sessao}.wa_desde_limpeza"
+
+    def _limpar_se_preciso(self, page) -> None:
+        caminho = self._contador_path()
+        if not self.limpar_a_cada or caminho is None:
+            return
+        # Sem contador = ninguém sabe quanto o chat acumulou (na rodada 3 ele
+        # chegou com todo o histórico da rodada 2): limpa já na primeira.
+        try:
+            n = int(caminho.read_text().strip() or 0)
+        except FileNotFoundError:
+            n = self.limpar_a_cada
+        except Exception:
+            n = self.limpar_a_cada
+        if n >= self.limpar_a_cada:
+            ok, nota = self.limpar_chat(page)
+            self._registrar_limpeza(caminho, n, ok, nota)
+            if ok:
+                n = 0
+        try:
+            caminho.parent.mkdir(parents=True, exist_ok=True)
+            caminho.write_text(str(n + 1))
+        except Exception:
+            pass
+
+    def _registrar_limpeza(self, caminho, n: int, ok: bool, nota: str) -> None:
+        import datetime
+        import json
+        reg = {
+            "em": datetime.datetime.now(datetime.timezone.utc)
+                  .isoformat(timespec="seconds"),
+            "sessoes": [os.environ.get("SESSAO") or self.name],
+            "por": "automatica",
+            "ok": ok,
+            "conversas_desde_a_anterior": n,
+            "nota": nota,
+        }
+        try:
+            with (caminho.parent.parent / "limpezas_whatsapp.jsonl").open(
+                    "a", encoding="utf-8") as f:
+                f.write(json.dumps(reg, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        (events.emit if ok else events.aviso)(
+            "whatsapp_chat_limpo" if ok else "whatsapp_limpeza_falhou",
+            **({} if ok else {"mensagem": nota}),
+            conversas_desde_a_anterior=n)
+
+    def limpar_chat(self, page) -> tuple[bool, str]:
+        """Menu do chat → "Limpar conversa" → confirma. Falhar NÃO aborta a
+        coleta: o chat cheio deixa o Meta AI lento, mas a conversa continua
+        válida. Por isso devolve (ok, nota) em vez de levantar."""
+        try:
+            antes = len(self._incoming_msgs(page))
+            page.locator(self._menu_chat).first.click(timeout=10000)
+            item = page.get_by_role("menuitem", name=self._rotulo_limpar)
+            if not item.count():
+                item = page.get_by_role("button", name=self._rotulo_limpar)
+            if not item.count():
+                item = page.get_by_text(self._rotulo_limpar)
+            item.first.click(timeout=10000)
+            dlg = page.locator("[role=dialog]")
+            dlg.first.wait_for(state="visible", timeout=10000)
+            dlg.get_by_role("button", name=self._rotulo_limpar).first.click(
+                timeout=10000)
+            dlg.first.wait_for(state="detached", timeout=60000)
+            time.sleep(2.0)
+            depois = len(self._incoming_msgs(page))
+            return True, f"balões recebidos na tela: {antes} -> {depois}"
+        except Exception as e:  # noqa: BLE001
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            return False, f"limpeza falhou: {e!r}"[:300]
 
     def _send_raw(self, page, text: str) -> None:
         """Envia `text` como UMA mensagem.
