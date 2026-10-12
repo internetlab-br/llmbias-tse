@@ -76,17 +76,26 @@ def generate_text(prompt: str, *, system: str | None = None,
 
 
 def generate_structured(prompt: str, schema, *, system: str | None = None,
-                        temperature: float = 0.2, model: str | None = None):
+                        temperature: float = 0.2, model: str | None = None,
+                        thinking_budget: int | None = None):
     """Geração com saída estruturada (JSON validado por um schema pydantic).
 
     Retorna a instância pydantic (`resp.parsed`).
+
+    `thinking_budget=0` desliga o pensamento — é como se pede effort baixo
+    nesta família. Deixar `None` mantém o padrão do modelo.
     """
     client = get_client()
+    extra = {}
+    if thinking_budget is not None:
+        extra["thinking_config"] = types.ThinkingConfig(
+            thinking_budget=thinking_budget)
     cfg = types.GenerateContentConfig(
         system_instruction=system,
         temperature=temperature,
         response_mime_type="application/json",
         response_schema=schema,
+        **extra,
     )
     resp = _with_retry(lambda: client.models.generate_content(
         model=model or DEFAULT_MODEL, contents=prompt, config=cfg,

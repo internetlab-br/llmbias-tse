@@ -37,7 +37,13 @@ class Juiz:
     key: str
     provider: str      # "google" | "anthropic" | "openai"
     model: str
-    effort: str = "high"
+    # Esforço de raciocínio BAIXO por decisão do Julio (21/09/2026), nos três
+    # provedores. A tarefa do juiz é localizar e classificar trecho contra uma
+    # rubrica escrita, não deliberar: o prompt já traz a régua e a resposta é
+    # um JSON de achados. Raciocínio alto multiplica o token de saída — que é
+    # o mais caro — sem mudar o que se pede. Sobrescreva com
+    # `LLMBIAS_JUIZ_EFFORT` se algum dia isso for testado contra anotação.
+    effort: str = "low"
 
     @property
     def env_key(self) -> str:
@@ -103,23 +109,34 @@ def _openai_client():
 
 def _google(prompt: str, schema, juiz: Juiz):
     # Reaproveita o wrapper que já existe (retry de erro transitório incluso).
+    # `thinking_budget=0` desliga o pensamento; é o equivalente do effort
+    # baixo aqui.
     return llm.generate_structured(prompt, schema, temperature=0.1,
-                                   model=juiz.model)
+                                   model=juiz.model,
+                                   thinking_budget=_orcamento_pensamento(juiz))
+
+
+def _orcamento_pensamento(juiz: Juiz) -> int:
+    """Tokens de pensamento por chamada. Zero quando o effort é baixo/nenhum."""
+    return 0 if juiz.effort in ("low", "none", "minimal") else 4000
 
 
 def _anthropic(prompt: str, schema, juiz: Juiz):
     client = _anthropic_client()
-    # `messages.parse` valida a resposta contra o schema Pydantic. Thinking
-    # adaptativo + effort são o recomendado no Opus 5; sem `temperature`
-    # (removida nessa família).
-    msg = client.messages.parse(
+    # `messages.parse` valida a resposta contra o schema Pydantic. Sem
+    # `temperature` (removida nessa família). O thinking sai quando o effort é
+    # baixo: pedir pensamento e effort baixo ao mesmo tempo é contraditório, e
+    # é o pensamento que domina o custo de saída.
+    params = dict(
         model=juiz.model,
         max_tokens=16000,
-        thinking={"type": "adaptive"},
         output_config={"effort": juiz.effort},
         messages=[{"role": "user", "content": prompt}],
         output_format=schema,
     )
+    if _orcamento_pensamento(juiz):
+        params["thinking"] = {"type": "adaptive"}
+    msg = client.messages.parse(**params)
     # A resposta validada vem no bloco de texto (`parsed_output`), não num
     # atributo no topo da mensagem.
     for bloco in msg.content:
