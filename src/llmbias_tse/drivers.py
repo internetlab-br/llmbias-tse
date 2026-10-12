@@ -561,11 +561,15 @@ class ChatGPT(BaseDriver):
     composer_selectors = [
         # Out/2026: o composer perdeu o id `prompt-textarea` e ficou só o
         # ProseMirror com role=textbox (aria-label no idioma da conta).
-        "div.ProseMirror[contenteditable='true'][role='textbox']",
+        # DENTRO DO <form>: a resposta do ChatGPT às vezes traz um bloco
+        # "Escrita" editável que também é ProseMirror role=textbox (aria
+        # "Comece a escrever") e vem ANTES no DOM. Sem o `form`, o prompt foi
+        # digitado dentro desse bloco, no meio da resposta (12/10/2026).
+        "form div.ProseMirror[contenteditable='true'][role='textbox']",
         "#prompt-textarea",
         "div[contenteditable='true']#prompt-textarea",
         "textarea[data-testid='prompt-textarea']",
-        "textarea",
+        "form textarea",
     ]
     # Out/2026: as marcas `data-message-author-role`, `article` e
     # `data-message-id` sumiram. A mensagem passou a ser identificada pela
