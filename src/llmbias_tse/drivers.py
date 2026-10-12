@@ -1616,17 +1616,39 @@ class WhatsAppMetaAI(BaseDriver):
         except Exception:
             return None
 
+    # O aviso que o WhatsApp devolve ao `/reset-all-ais`. Não é fala do Meta
+    # AI, mas chega como balão RECEBIDO, com `data-id` próprio. Quando ele
+    # demora mais que a espera do `reset`, aparece já depois do envio do
+    # turno 1 e o `submit` o tomava pela resposta: 11 das 360 conversas da
+    # rodada 2 têm o aviso gravado como a resposta inteira do turno 1, e o
+    # preflight de 12/10/2026 o pegou colado antes de "pronto".
+    _aviso_reset_re = re.compile(
+        r"All AIs will be reset to their default states\.?"
+        r"(?:\s*All AI copies of your conversations will be deleted from Meta"
+        r" servers\.?)?"
+        r"|Todas as IAs (?:serão|vão ser) redefinidas[^\n]*",
+        re.IGNORECASE,
+    )
+
+    def _sem_aviso_reset(self, t: str) -> str:
+        return self._aviso_reset_re.sub("", t or "").strip()
+
     def reset(self, page) -> None:
-        """Zera a memória do Meta AI e espera a confirmação chegar."""
-        baseline = capture.count_responses(page, self.response_selector)
+        """Zera a memória do Meta AI e espera o AVISO de reset chegar.
+
+        Esperar o aviso (e não só "algum balão novo") é o que impede que ele
+        chegue durante o turno 1. O `submit` também o descarta, como segunda
+        barreira, porque a espera aqui tem prazo."""
+        before = {m["id"] for m in self._incoming_msgs(page) if m["id"]}
         self._send_raw(page, self.reset_command)
-        try:
-            capture.wait_response_started(
-                page, self.response_selector, baseline, [],
-                [self.response_selector], "", timeout=30,
-            )
-        except Exception:
-            pass
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            self._scroll_to_bottom(page)
+            if any(m["id"] and m["id"] not in before
+                   and self._aviso_reset_re.search(m["t"] or "")
+                   for m in self._incoming_msgs(page)):
+                break
+            time.sleep(0.5)
         time.sleep(2.0)
 
     def _force_focus(self, page) -> None:
@@ -1795,7 +1817,8 @@ class WhatsAppMetaAI(BaseDriver):
                      if m["id"] and m["id"] not in before
                      and (m["t"] or "").strip() not in self._placeholders
                      and (m["t"] or "").strip() != prompt.strip()]
-            t = "\n".join(m["t"] for m in novos if m["t"]).strip()
+            t = "\n".join(x for x in (self._sem_aviso_reset(m["t"])
+                                       for m in novos) if x).strip()
             if t:
                 saw_new = True
                 if t == last_text:
