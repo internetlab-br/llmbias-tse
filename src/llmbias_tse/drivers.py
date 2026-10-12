@@ -544,7 +544,19 @@ class BaseDriver:
 
 class ChatGPT(BaseDriver):
     name = "chatgpt"
-    modelo_selectors = ["button.__composer-pill[aria-haspopup='menu']"]
+    modelo_selectors = ["button.__composer-pill[aria-haspopup='menu']",
+                        # out/2026: "Selecionar modelo do ChatGPT"
+                        "button[aria-haspopup='menu'][aria-label*='modelo do ChatGPT' i]",
+                        "button[aria-haspopup='menu'][aria-label*='ChatGPT model' i]"]
+
+    def rotulo_modelo(self, page) -> str | None:
+        # O botão novo carrega um rótulo de leitor de tela antes do modelo
+        # ("Esforço de raciocínioInstant"); fica só o modelo.
+        txt = super().rotulo_modelo(page)
+        if txt:
+            txt = re.sub(r"^(esforço de raciocínio|reasoning effort)\s*", "",
+                         txt, flags=re.I)
+        return txt or None
     new_chat_url = "https://chatgpt.com/"
     composer_selectors = [
         # Out/2026: o composer perdeu o id `prompt-textarea` e ficou só o
@@ -1070,7 +1082,10 @@ class ClaudeMomentary(Claude):
 class Grok(BaseDriver):
     name = "grok"
     modelo_selectors = ["button[aria-label='Seleção de modelo']",
-                        "button[aria-label='Model selection']"]
+                        "button[aria-label='Model selection']",
+                        # out/2026: o rótulo traz o modelo ("Model: Fast")
+                        "button[aria-haspopup='menu'][aria-label^='Model:']",
+                        "button[aria-haspopup='menu'][aria-label^='Modelo:']"]
     new_chat_url = "https://grok.com/"
     # Composer é um contenteditable dentro de [data-testid=chat-input] (a
     # <textarea> é oculta, só pra a11y). Enter NÃO submete → usa o botão.
