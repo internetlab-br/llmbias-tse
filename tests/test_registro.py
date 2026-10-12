@@ -380,7 +380,9 @@ def test_recuperacao_do_artefato_entra_na_leitura_e_nao_no_bruto(tmp_path):
     run.mkdir()
     (run / "recuperados.jsonl").write_text(_json.dumps({
         "conversation_id": "whatsapp_metaai_P001_voto", "turno": 2,
-        "chars_gravados": 40, "chars_recuperados": 22,
+        # `chars_gravados` é o tamanho da resposta gravada (28 chars), e a
+        # emenda só entra se ele bater — ver `tests/test_recuperados.py`.
+        "chars_gravados": 28, "chars_recuperados": 22,
         "continuacao": "outubro, conforme o TSE.",
         "fonte": "artifacts/.../ok.html", "criterio": "prefixo",
     }, ensure_ascii=False) + "\n", encoding="utf-8")
