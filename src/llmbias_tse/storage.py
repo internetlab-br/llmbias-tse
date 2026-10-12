@@ -15,6 +15,7 @@ de conta pessoal).
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,10 +79,19 @@ def _recuperados(run_dir=None) -> dict:
     HTML do artefato. Recuperar dali foi decisão do time em 21/09/2026 —
     recoletar no WhatsApp custa horas por conversa.
     """
-    base = Path(run_dir) if run_dir else DATA_ROOT / "experimento_2026_09"
-    chave = str(base)
+    if run_dir is None:
+        return {}
+    base = Path(run_dir)
+    chave = str(base.resolve())
     if chave in _REC_CACHE:
         return _REC_CACHE[chave]
+    if not base.is_dir():
+        # Falha tem de parecer falha: sem o run dir não há como saber se a
+        # conversa tem emenda, e seguir calado devolveria o texto truncado
+        # como se fosse o completo — foi o que aconteceu ao rodar de uma
+        # worktree sem `data/` (50 turnos do WhatsApp, out/2026).
+        print(f"[storage] AVISO: run dir {base} não existe; emendas de "
+              f"`recuperados.jsonl` NÃO aplicadas", file=sys.stderr, flush=True)
     idx: dict = {}
     f = base / "recuperados.jsonl"
     if f.exists():
@@ -117,7 +127,12 @@ def turnos_limpos(conversation: dict) -> list[dict]:
     from .drivers import REGISTRY
     from .conjoint_experiment import PLATFORM_DRIVERS
 
-    recuperados = _recuperados(conversation.get("run_dir"))
+    # O run da PRÓPRIA conversa. Até out/2026 o padrão era a rodada 2 fixa no
+    # código, e a chave é (conversa, turno) — que se repete entre rodadas: as
+    # emendas da rodada 2 seriam coladas nas respostas da rodada 3.
+    rd = conversation.get("run_dir") or (
+        DATA_ROOT / conversation["run_id"] if conversation.get("run_id") else None)
+    recuperados = _recuperados(rd)
     plat = conversation.get("platform")
     chave = (PLATFORM_DRIVERS.get(plat) or (plat,))[0]
     driver = REGISTRY.get(chave)
@@ -137,6 +152,11 @@ def turnos_limpos(conversation: dict) -> list[dict]:
         # resto: o bruto continua sendo o que a captura trouxe.
         rec = recuperados.get((cid, t.get("turn")))
         emendado = r
+        # Só emenda a resposta de onde a recuperação saiu: o tamanho gravado
+        # tem de bater. Protege contra aplicar uma emenda a outra resposta
+        # com o mesmo (conversa, turno).
+        if rec and rec.get("chars_gravados") not in (None, len(r)):
+            rec = None
         if rec:
             emendado = r.rstrip() + " " + rec["continuacao"]
         limpo = d.limpar_resposta(emendado)
