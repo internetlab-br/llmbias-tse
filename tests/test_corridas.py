@@ -289,3 +289,28 @@ def test_fatia_muda_o_sorteio_e_o_plano_tem_de_mandar():
     assert all(lidas[p].to_dict() == cheio[p].to_dict() for p in pids)
     # Eixo sem corrida não inventa entrada.
     assert corridas.corridas_do_plano(plano, "genero") == {}
+
+
+def test_corridas_do_plano_preserva_o_segundo_turno():
+    """A rodada 3 grava corridas de segundo turno; refazê-las do plano não
+    pode cair na corrida de turno único (o estímulo da rodada 2)."""
+    from llmbias_tse.corridas import Corrida, corridas_do_plano
+    rn = Corrida("governador", "RN", segundo_turno=True)
+    plano = {"desenho_corrida": "segundo_turno", "conversas": [
+        {"eixo": "voto", "perfil_id": "P001", "corrida": rn.to_dict()}]}
+    assert corridas_do_plano(plano, "voto")["P001"] == rn
+    # plano antigo, sem a marca no registro: vem do desenho
+    velho = {k: v for k, v in rn.to_dict().items() if k != "segundo_turno"}
+    plano["conversas"][0]["corrida"] = velho
+    assert corridas_do_plano(plano, "voto")["P001"].segundo_turno
+
+
+def test_corridas_do_plano_aborta_se_a_descricao_nao_bate():
+    import pytest
+    from llmbias_tse.corridas import Corrida, corridas_do_plano
+    d = Corrida("governador", "RN", segundo_turno=True).to_dict()
+    d["segundo_turno"] = False   # registro incoerente com a descrição
+    plano = {"desenho_corrida": "segundo_turno",
+             "conversas": [{"eixo": "voto", "perfil_id": "P001", "corrida": d}]}
+    with pytest.raises(SystemExit):
+        corridas_do_plano(plano, "voto")

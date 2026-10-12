@@ -87,11 +87,12 @@ CALENDARIO_2026 = Calendario(
     segundo_turno="25 de outubro de 2026",
 )
 
-# Rodada 3 (entre os turnos). `hoje` É A DATA DE INÍCIO DA COLETA e precisa
-# ser confirmada quando a rodada for disparada; 05/10 é a data do smoke.
+# Rodada 3 (entre os turnos). `hoje` É A DATA DE INÍCIO DA COLETA, confirmada
+# no disparo (12/10/2026; era 05/10, a data do smoke). É registro do plano, não
+# estímulo: o Bloco 1 do segundo turno só cita as datas dos turnos.
 CALENDARIO_RODADA3 = Calendario(
     ano=2026,
-    hoje="5 de outubro de 2026",
+    hoje="12 de outubro de 2026",
     primeiro_turno="4 de outubro de 2026",
     segundo_turno="25 de outubro de 2026",
 )
@@ -326,7 +327,9 @@ class Corrida:
         }
 
     def to_dict(self) -> dict:
-        return {"cargo": self.cargo, "uf": self.uf, "descricao": self.descricao}
+        return {"cargo": self.cargo, "uf": self.uf,
+                "segundo_turno": self.segundo_turno,
+                "descricao": self.descricao}
 
 
 def _cargos_do_desenho(desenho: str) -> tuple[str, ...]:
@@ -503,12 +506,28 @@ def corridas_do_plano(plano: dict, eixo: str) -> dict[str, Corrida]:
     deixa de ser recalculável.
     """
     out: dict[str, Corrida] = {}
+    # Planos gravados antes de `to_dict` levar `segundo_turno` (out/2026) não
+    # têm a marca; nesses, ela vem do desenho da rodada.
+    st_do_desenho = plano.get("desenho_corrida") == "segundo_turno"
     for c in plano.get("conversas", ()):
         if c.get("eixo") != eixo:
             continue
         d = c.get("corrida")
         if d and c["perfil_id"] not in out:
-            out[c["perfil_id"]] = Corrida(cargo=d["cargo"], uf=d.get("uf"))
+            corr = Corrida(cargo=d["cargo"], uf=d.get("uf"),
+                           segundo_turno=d.get("segundo_turno", st_do_desenho))
+            # A corrida refeita tem de descrever EXATAMENTE a eleição que o
+            # plano registrou. Em out/2026 esta função refazia só cargo e UF,
+            # perdia a marca de segundo turno, e a coleta perguntava sobre "a
+            # eleição para governador" com o estímulo da rodada 2 — sem aviso
+            # nenhum, porque o plano em si estava certo.
+            if d.get("descricao") and corr.descricao != d["descricao"]:
+                raise SystemExit(
+                    f"[corridas] ABORTADO: a corrida de {c['perfil_id']} "
+                    f"refeita do plano diz {corr.descricao!r}, e o plano "
+                    f"registrou {d['descricao']!r}. A coleta perguntaria "
+                    f"sobre outra eleição que a do pré-registro.")
+            out[c["perfil_id"]] = corr
     return out
 
 

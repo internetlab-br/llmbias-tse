@@ -547,15 +547,27 @@ class ChatGPT(BaseDriver):
     modelo_selectors = ["button.__composer-pill[aria-haspopup='menu']"]
     new_chat_url = "https://chatgpt.com/"
     composer_selectors = [
+        # Out/2026: o composer perdeu o id `prompt-textarea` e ficou só o
+        # ProseMirror com role=textbox (aria-label no idioma da conta).
+        "div.ProseMirror[contenteditable='true'][role='textbox']",
         "#prompt-textarea",
         "div[contenteditable='true']#prompt-textarea",
         "textarea[data-testid='prompt-textarea']",
         "textarea",
     ]
-    response_selector = "[data-message-author-role='assistant']"
+    # Out/2026: as marcas `data-message-author-role`, `article` e
+    # `data-message-id` sumiram. A mensagem passou a ser identificada pela
+    # chave de busca do turno (`…:assistant` / `…:user`), e o texto fica na
+    # raiz do markdown marcada `assistant-message`. Os seletores antigos
+    # seguem na lista (CSS, vale o último no documento) para a conta que
+    # ainda receber o DOM anterior.
+    response_selector = ("[data-message-author-role='assistant'], "
+                         "[data-chatgpt-search-unit-key$=':assistant']")
     # Texto limpo do markdown da resposta (sem rótulos de botões da toolbar).
-    content_selector = "[data-message-author-role='assistant'] .markdown"
-    user_selector = "[data-message-author-role='user']"
+    content_selector = ("[data-message-author-role='assistant'] .markdown, "
+                        "div[data-markdown-text-style='assistant-message']")
+    user_selector = ("[data-message-author-role='user'], "
+                     "[data-chatgpt-search-unit-key$=':user']")
     # Confirmado por instrumentação: stop-button visível durante a geração;
     # some em ~7s mesmo em respostas longas. Teto menor que o default p/ um
     # turno travado não queimar 4 min (cai no fallback que devolve o parcial).
@@ -563,6 +575,10 @@ class ChatGPT(BaseDriver):
         "button[data-testid='stop-button']",
         "button[aria-label*='Stop']",
         "button[aria-label*='Parar']",
+        # Out/2026: o turno traz o próprio estado; tudo o que não é
+        # `complete` conta como gerando. Se o atributo não aparecer durante a
+        # geração, sobra a estabilidade do texto (`wait_until_idle`).
+        "[data-talvt-turn-state]:not([data-talvt-turn-state='complete'])",
     ]
     response_timeout = 150.0
 
@@ -698,6 +714,11 @@ class ChatGPTMomentary(ChatGPT):
                   flush=True)
             return
         for _ in range(3):
+            # Fecha avisos A CADA tentativa, não só uma vez antes do laço: o
+            # convite "Agende tudo no ChatGPT" (out/2026) aparece DEPOIS da
+            # varredura de `open_new_chat` e intercepta o clique no seletor,
+            # e as três tentativas falhavam no mesmo pop-up.
+            self._dispensar_aviso(page)
             try:
                 page.locator("button:has-text('ersonalizado'), "
                              "button:has-text('ersonalized')").first.click(
@@ -856,7 +877,14 @@ class Claude(BaseDriver):
     # "false" ao terminar — sinal de "ocupado" muito mais confiável que o
     # antigo botão de parar. O texto limpo fica em `div.font-claude-response`.
     response_selector = "div[data-is-streaming]"
-    content_selector = "div.font-claude-response"
+    # Out/2026 (conta em inglês): o texto passou a morar em
+    # `div.standard-markdown`, dentro de `[data-testid=assistant-message]`, e
+    # `div.font-claude-response` sumiu. Sem ele a leitura caía no bloco
+    # inteiro da mensagem — "Claude responded: …" (h2 de leitor de tela), o
+    # texto, os ícones dos botões e "just now". A conta em português ainda
+    # servia o DOM antigo: valem os dois (lista CSS, o último no documento).
+    content_selector = ("div.font-claude-response, "
+                        "[data-testid='assistant-message'] div.standard-markdown")
     user_selector = "[data-testid='user-message']"
     busy_selectors = [
         "div[data-is-streaming='true']",
@@ -961,14 +989,22 @@ class ClaudeMomentary(Claude):
         # texto da página dava falso-positivo (o botão/tooltip "Use incognito"
         # contém "incognito" mesmo no modo normal), fazendo o driver PULAR a
         # ativação e rodar em modo normal (salvando no histórico).
+        # Out/2026: a URL passou de `?incognito=` para `?incognito` (sem o
+        # `=`), e a conta em português chama o modo de "Chat anônimo". O
+        # parâmetro conta com ou sem valor.
         try:
-            if "incognito=" in (page.url or "").lower():
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(page.url or "").query, keep_blank_values=True)
+            if "incognito" in {k.lower() for k in q}:
                 return True
         except Exception:
             pass
-        # Reforço: só considera ativo se houver banner explícito de estado.
+        # Reforço: só considera ativo se houver banner explícito de estado —
+        # "Você está no modo anônimo" só aparece com o modo LIGADO (o botão
+        # e o título "Chat anônimo" existem também no modo normal).
         return _has_leaf_text(page, ["you're incognito", "incognito chat",
-                                     "conversa incógnita", "chat incógnito"])
+                                     "conversa incógnita", "chat incógnito",
+                                     "você está no modo anônimo"])
 
     def _dismiss_modal(self, page) -> None:
         """Fecha nudges/modais do Claude (ex.: 'claude-code-nudge') cujo backdrop
@@ -1013,7 +1049,7 @@ class ClaudeMomentary(Claude):
                 # conversa — que é o comportamento certo para não vazar
                 # para o histórico, mas deixava a plataforma sem coletar.
                 page.get_by_role(
-                    "button", name=re.compile(r"(use incognito|modo incógnito)", re.I)
+                    "button", name=re.compile(r"(use incognito|modo incógnito|anônimo)", re.I)
                 ).first.click(
                     timeout=5000)
             except Exception as e:
@@ -1024,7 +1060,8 @@ class ClaudeMomentary(Claude):
                     return
                 time.sleep(0.3)
         raise RuntimeError(
-            "Claude: conversa incognito não confirmada (URL sem ?incognito=) "
+            "Claude: conversa incognito/anônima não confirmada (URL sem "
+            "?incognito nem banner 'modo anônimo') "
             f"(último erro: {last_err!r}) — abortando para não salvar no "
             "histórico/memória"
         )
