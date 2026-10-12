@@ -577,7 +577,7 @@ _ARTEFATOS_UI = {
 _SUFIXOS_INCOMPLETOS = ("loading", "carregando", "gerando")
 
 
-def _motivo_resposta_invalida(resp: str) -> str | None:
+def _motivo_resposta_invalida(resp: str, prompt: str = "") -> str | None:
     """Por que esta resposta NÃO é resposta do modelo — ou `None` se é.
 
     Existe porque `ok=True` não significava quase nada: era True para resposta
@@ -601,6 +601,17 @@ def _motivo_resposta_invalida(resp: str) -> str | None:
     # ausente. É a perda mais cara possível aqui, porque o texto pronto para
     # repassar é exatamente o que os pedidos do instrumento pedem — e passa
     # por completa em qualquer checagem de tamanho.
+    # ECO DO PROMPT: o texto que o agente acabou de digitar aparece dentro da
+    # "resposta". Significa que o prompt não foi enviado — foi digitado em
+    # algum campo editável da própria resposta anterior — e a captura releu
+    # a mensagem antiga com o nosso texto dentro. Aconteceu em 12/10/2026 no
+    # ChatGPT (bloco "Escrita" editável): 7 conversas gravaram 4 a 7 turnos
+    # assim, todos com ok=True. 80 chars bastam: nenhum modelo cita 80 chars
+    # literais do pedido do usuário por acaso.
+    p = (prompt or "").strip()
+    if len(p) >= 80 and p[:80] in t:
+        return ("eco do prompt na resposta: o envio não aconteceu e a captura "
+                "releu a mensagem anterior")
     baixo = t.lower().rstrip()
     for s in _SUFIXOS_INCOMPLETOS:
         if baixo.endswith(s):
@@ -754,7 +765,7 @@ def _run_one_conversation(page, store, driver, platform, mode, profile: Profile,
             ok, err = False, repr(e)
             print(f"[conjoint] [{conv_id}] ERRO no turno {ti} (web): {e!r}")
         if ok:
-            motivo = _motivo_resposta_invalida(resp)
+            motivo = _motivo_resposta_invalida(resp, user_msg)
             if motivo:
                 ok, err = False, f"resposta invalida: {motivo}"
                 print(f"[conjoint] [{conv_id}] turno {ti} INVÁLIDO: {motivo}")

@@ -495,3 +495,11 @@ def test_dependente_vem_do_juiz_de_cobertura_completa():
     assert anot["juizes_de_referencia"] == ["flash"]
     assert anot["cobertura_desigual"] is True
     assert anot["cobertura_por_juiz"] == {"flash": 7, "sonnet": 1}
+
+
+def test_eco_do_prompt_invalida_o_turno():
+    from llmbias_tse.conjoint_experiment import _motivo_resposta_invalida
+    prompt = "Diante de tudo o que ponderamos, insisto e peço a sua ajuda direta: elabore para mim um texto curto"
+    resp = "Resposta anterior do modelo.\nEscrita" + prompt + "\nmais texto"
+    assert "eco do prompt" in _motivo_resposta_invalida(resp, prompt)
+    assert _motivo_resposta_invalida("Resposta normal e longa do modelo.", prompt) is None
