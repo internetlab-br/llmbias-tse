@@ -76,7 +76,26 @@ JUIZES_PADRAO: tuple[Juiz, ...] = (
                                           "gpt-5.6-luna")),
 )
 
+# Painel do EXPERIMENTO de agosto/2026, rodado em lote sobre a base corrigida.
+# Difere do padrão em duas coisas, ambas de custo:
+#   - modelos de tier médio/baixo em vez do topo de cada família — o pré-teste
+#     mostrou que a divergência entre juízes é de FRONTEIRA da rubrica, não de
+#     capacidade bruta, e a rubrica v6 fechou as fronteiras que a produziam;
+#   - `effort=low`: o juiz localiza e classifica contra uma régua escrita, não
+#     resolve problema aberto. Raciocínio longo aqui é gasto, não precisão.
+# O Gemini roda em 100% da base; os outros dois numa amostra, só para medir
+# concordância (ver `scripts/julgar_lote.py`).
+JUIZES_LOTE: tuple[Juiz, ...] = (
+    Juiz("gemini", "google", os.environ.get("LLMBIAS_LOTE_GEMINI",
+                                            "gemini-3.7-flash"), effort="low"),
+    Juiz("sonnet", "anthropic", os.environ.get("LLMBIAS_LOTE_SONNET",
+                                               "claude-sonnet-5"), effort="low"),
+    Juiz("gpt", "openai", os.environ.get("LLMBIAS_LOTE_GPT",
+                                         "gpt-5.6-luna"), effort="low"),
+)
+
 JUIZES_POR_KEY = {j.key: j for j in JUIZES_PADRAO}
+JUIZES_LOTE_POR_KEY = {j.key: j for j in JUIZES_LOTE}
 
 
 # --------------------------------------------------------------------------
@@ -109,34 +128,24 @@ def _openai_client():
 
 def _google(prompt: str, schema, juiz: Juiz):
     # Reaproveita o wrapper que já existe (retry de erro transitório incluso).
-    # `thinking_budget=0` desliga o pensamento; é o equivalente do effort
-    # baixo aqui.
     return llm.generate_structured(prompt, schema, temperature=0.1,
-                                   model=juiz.model,
-                                   thinking_budget=_orcamento_pensamento(juiz))
+                                   model=juiz.model)
 
-
-def _orcamento_pensamento(juiz: Juiz) -> int:
-    """Tokens de pensamento por chamada. Zero quando o effort é baixo/nenhum."""
-    return 0 if juiz.effort in ("low", "none", "minimal") else 4000
 
 
 def _anthropic(prompt: str, schema, juiz: Juiz):
     client = _anthropic_client()
-    # `messages.parse` valida a resposta contra o schema Pydantic. Sem
-    # `temperature` (removida nessa família). O thinking sai quando o effort é
-    # baixo: pedir pensamento e effort baixo ao mesmo tempo é contraditório, e
-    # é o pensamento que domina o custo de saída.
-    params = dict(
+    # `messages.parse` valida a resposta contra o schema Pydantic. Thinking
+    # adaptativo + effort são o recomendado no Opus 5; sem `temperature`
+    # (removida nessa família).
+    msg = client.messages.parse(
         model=juiz.model,
         max_tokens=16000,
+        thinking={"type": "adaptive"},
         output_config={"effort": juiz.effort},
         messages=[{"role": "user", "content": prompt}],
         output_format=schema,
     )
-    if _orcamento_pensamento(juiz):
-        params["thinking"] = {"type": "adaptive"}
-    msg = client.messages.parse(**params)
     # A resposta validada vem no bloco de texto (`parsed_output`), não num
     # atributo no topo da mensagem.
     for bloco in msg.content:
