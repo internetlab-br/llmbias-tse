@@ -1571,9 +1571,44 @@ class WhatsAppMetaAI(BaseDriver):
         self._force_focus(page)  # anti-throttle de render do WA Web (aba ocluída)
         if "web.whatsapp.com" not in page.url:
             page.goto(self.new_chat_url, wait_until="domcontentloaded", timeout=90000)
-        capture.first_visible(page, self.composer_selectors, timeout=30)
+        self._garantir_chat_meta_ai(page)
         self._limpar_se_preciso(page)
         self.reset(page)
+
+    def _no_chat_meta_ai(self, page) -> bool:
+        try:
+            h = page.locator("#main header").first
+            if not h.count():
+                return False
+            return (h.text_content(timeout=3000) or "").strip().startswith("Meta AI")
+        except Exception:
+            return False
+
+    def _garantir_chat_meta_ai(self, page, timeout: float = 60) -> None:
+        """Deixa o chat do Meta AI ABERTO, ou levanta.
+
+        Abre sozinho em vez de depender de alguém ter clicado: a limpeza do
+        chat fecha a conversa (12/10/2026), e o restart do container também
+        volta para a lista. E levanta se não conseguir, porque o seletor do
+        composer (`footer [role=textbox]`) casa com QUALQUER chat aberto — sem
+        esta guarda, o prompt do experimento iria para um contato de verdade.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._no_chat_meta_ai(page):
+                capture.first_visible(page, self.composer_selectors, timeout=30)
+                return
+            for sel in ("#pane-side span[title='Meta AI']",
+                        "button[aria-label='Meta AI']"):
+                try:
+                    loc = page.locator(sel).first
+                    if loc.count() and loc.is_visible():
+                        loc.click(timeout=5000)
+                        break
+                except Exception:
+                    pass
+            time.sleep(2.0)
+        raise RuntimeError("chat do Meta AI não abriu (cabeçalho não é 'Meta AI')")
 
     # LIMPEZA DO CHAT a cada N conversas da estação. O chat do Meta AI é único
     # e acumula: na rodada 2 a latência por turno subiu de 43 s para 239 s em
@@ -1614,6 +1649,9 @@ class WhatsAppMetaAI(BaseDriver):
             n = self.limpar_a_cada
         if n >= self.limpar_a_cada:
             ok, nota = self.limpar_chat(page)
+            # A limpeza fecha a conversa e volta para a lista: reabrir antes
+            # do reset, senão a conversa seguinte aborta sem composer.
+            self._garantir_chat_meta_ai(page)
             self._registrar_limpeza(caminho, n, ok, nota)
             if ok:
                 n = 0
@@ -1891,6 +1929,9 @@ class WhatsAppMetaAI(BaseDriver):
             page.bring_to_front()  # aba ativa (anti-throttle de render do WA Web)
         except Exception:
             pass
+        # A cada turno, não só na abertura: nada impede alguém de clicar em
+        # outro chat pela tela remota no meio da conversa.
+        self._garantir_chat_meta_ai(page)
         before = {m["id"] for m in self._incoming_msgs(page) if m["id"]}
         self._send_raw(page, prompt)
         deadline = time.time() + self.response_timeout

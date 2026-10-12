@@ -14,6 +14,7 @@ def _driver(monkeypatch, tmp_path, a_cada=3, ok=True):
         d.chamadas += 1
         return ok, "teste"
     d.limpar_chat = limpar
+    d._garantir_chat_meta_ai = lambda page: None
     return d
 
 
