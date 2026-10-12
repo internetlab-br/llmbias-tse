@@ -195,6 +195,34 @@ def _snapshot_rubrics(store: RunStore, eixos: list[str]) -> dict[str, RubricGrid
     return rubrics
 
 
+def _parametros_da_rodada(run_dir: Path, desenho: str | None,
+                          balanceamento: str | None,
+                          calendario: corridas.Calendario | None,
+                          ) -> tuple[str, str, corridas.Calendario]:
+    """Desenho, balanceamento e calendário desta execução. O PLANO MANDA.
+
+    O que não veio explícito é o que está gravado no plano da rodada. As
+    estações retomam sem `--desenho-corrida` nem calendário — o runner só
+    passa run-id, plataforma e eixos —, e com o padrão fixo uma rodada
+    planejada com outro desenho (a rodada 3, `segundo_turno`) abortaria em
+    todas elas. Flag explícita que contradiz o plano continua abortando em
+    `_conferir_plano_compativel`. Sem plano gravado, valem os padrões.
+    """
+    gravado: dict = {}
+    f = Path(run_dir) / "plano_coleta.json"
+    if f.exists():
+        gravado = json.loads(f.read_text(encoding="utf-8"))
+    desenho = (desenho or gravado.get("desenho_corrida")
+               or corridas.DESENHO_PADRAO)
+    balanceamento = (balanceamento or gravado.get("balanceamento_corrida")
+                     or corridas.BALANCEAMENTO_PADRAO)
+    if calendario is None and gravado.get("calendario"):
+        cal = {k: v for k, v in gravado["calendario"].items()
+               if k != "ano_municipal"}
+        calendario = corridas.Calendario(**cal)
+    return desenho, balanceamento, calendario or corridas.CALENDARIO_2026
+
+
 def _conferir_plano_compativel(plano: dict, eixos, desenho_corrida: str,
                                calendario: corridas.Calendario,
                                balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
@@ -1259,8 +1287,8 @@ def run(n_profiles: int = 3, seed: int = 2026,
         tema_prob: float = DEFAULT_TEMA_PROB, min_temas: int = DEFAULT_MIN_TEMAS,
         juizes_keys: list[str] | None = None, judge_mode: str = "turno",
         com_primeira_mensagem: bool = True,
-        desenho_corrida: str = corridas.DESENHO_PADRAO,
-        balanceamento_corrida: str = corridas.BALANCEAMENTO_PADRAO,
+        desenho_corrida: str | None = None,
+        balanceamento_corrida: str | None = None,
         calendario: corridas.Calendario | None = None,
         fatia: str | None = None,
         phase: str = "all") -> int:
@@ -1299,7 +1327,8 @@ def run(n_profiles: int = 3, seed: int = 2026,
     rubrics = _snapshot_rubrics(store, eixos)
     # Plano de coleta (roteiro por eixo × perfil) montado ANTES de rodar,
     # inspecionável e retomável; o mesmo estímulo para todas as plataformas.
-    calendario = calendario or corridas.CALENDARIO_2026
+    desenho_corrida, balanceamento_corrida, calendario = _parametros_da_rodada(
+        store.dir, desenho_corrida, balanceamento_corrida, calendario)
     plan_roteiros, plan_temas, plan_corridas = _load_or_build_plan(
         store, profiles, platforms, eixos, seed, n_turns,
         tema_prob=tema_prob, min_temas=min_temas,
