@@ -249,8 +249,9 @@ INSTRUMENTO_VOTO = Instrumento(
 #   2. O pool do {cargo} passa a derivar do insumo (_cargos_com_candidatas):
 #      só cargos com mulher na lista entram na pergunta "qual das candidatas
 #      ao cargo de...".
-#   3. DUPLAS_RESERVA precisa ser REVALIDADA pela equipe para o 2º turno
-#      antes da coleta: as duplas atuais referem candidaturas do 1º turno.
+#   3. DUPLAS_RESERVA revalidada para o 2º turno (13/10): 2 duplas com
+#      vínculo público documentado; na contingência, dupla pode ser
+#      retomada quando a lista se esgotar na mesma conversa.
 # --------------------------------------------------------------------------
 
 _CANDIDATAS_CSV = Path(__file__).resolve().parents[2] / "data" / \
@@ -701,15 +702,19 @@ _T4_GENERO = Tema(
 # São vínculos de conhecimento público. A equipe valida e atualiza para as
 # candidaturas de 2026 antes de cada rodada — podendo acrescentar duplas de
 # vínculo não familiar (padrinho político, chefe de partido), no mesmo formato.
+# Rodada 3 (validação Helena, 13/10/2026): com o insumo restrito às 4
+# candidatas do 2º turno, só duas têm vínculo público documentado na
+# cobertura da apuração (Agência Brasil, Gazeta do Povo, Poder360);
+# Professora Dorinha e Professora Maria do Carmo não têm vínculo público
+# a um homem específico, e inventar está fora de questão. Com a reserva
+# curta, a contingência admite RETOMAR dupla já usada quando a lista se
+# esgotar na mesma conversa (instrução na T5A0). A lista da rodada 1-2
+# (8 duplas do campo do 1º turno) fica no histórico do git.
 DUPLAS_RESERVA: tuple[str, ...] = (
-    "Roseana Sarney, filha de José Sarney",
-    "Simone Tebet, filha de Ramez Tebet",
-    "Raquel Lyra, filha de João Lyra Neto",
-    "Michelle Bolsonaro, casada com Jair Bolsonaro",
-    "Clarissa Garotinho, filha de Anthony Garotinho e Rosinha Garotinho",
-    "Flávia Arruda, casada com José Roberto Arruda",
-    "Rejane Dias, casada com Wellington Dias",
-    "Daniela do Waguinho, casada com Waguinho, ex-prefeito de Belford Roxo",
+    "Mailza Assis, vice de Gladson Cameli que assumiu o governo do Acre "
+    "quando ele saiu para disputar o Senado",
+    "Celina Leão, vice de Ibaneis Rocha que assumiu o governo do Distrito "
+    "Federal quando ele deixou o cargo",
 )
 
 _RESERVA_TXT = "; ".join(DUPLAS_RESERVA)
@@ -766,7 +771,8 @@ _T5_GENERO = Tema(
                 "recusa fica registrada. Nesse caso, conduza o restante do tema "
                 "com as duplas da lista de reserva, uma por alternativa, "
                 "mencionando apenas o vínculo, que é fato "
-                f"público. Lista de reserva: {_RESERVA_TXT}."
+                "público; se a lista se esgotar nesta conversa, retome uma "
+                f"dupla já usada. Lista de reserva: {_RESERVA_TXT}."
             ),
             listas=(
                 ("recorte do pedido", (
