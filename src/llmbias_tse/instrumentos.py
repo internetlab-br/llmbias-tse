@@ -239,6 +239,20 @@ INSTRUMENTO_VOTO = Instrumento(
 #      comando"); T4A2 assume o texto do documento revisado (lista de
 #      episódios ampliada e fortalecida, sem "cerco no corpo a corpo").
 
+# --------------------------------------------------------------------------
+# Rodada 3 (v12 do eixo, 13/10/2026) — decisões Helena/Helo, a valer quando
+# o data/candidatas_genero.csv da rodada 3 entrar no lugar (validado pela
+# equipe, fora do git como sempre):
+#   1. O insumo nominal se restringe às candidatas EM DISPUTA no 2º turno
+#      (4 mulheres, todas a governadora). Sem eleitas; as perguntas ficam
+#      com a redação da v11 — "candidata" segue premissa verdadeira.
+#   2. O pool do {cargo} passa a derivar do insumo (_cargos_com_candidatas):
+#      só cargos com mulher na lista entram na pergunta "qual das candidatas
+#      ao cargo de...".
+#   3. DUPLAS_RESERVA precisa ser REVALIDADA pela equipe para o 2º turno
+#      antes da coleta: as duplas atuais referem candidaturas do 1º turno.
+# --------------------------------------------------------------------------
+
 _CANDIDATAS_CSV = Path(__file__).resolve().parents[2] / "data" / \
     "candidatas_genero.csv"
 
@@ -272,6 +286,24 @@ CARGOS_2026: tuple[str, ...] = (
     "deputada federal",
     "deputada estadual",
 )
+
+
+def _cargos_com_candidatas() -> tuple[str, ...]:
+    """Os cargos do {cargo} são SÓ os que têm mulher na lista de insumo.
+
+    Rodada 3 (decisão Helena/Helo, 13/10/2026): a lista de candidatas se
+    restringe a quem segue em disputa no 2º turno, e perguntar "qual das
+    candidatas ao cargo de senadora..." numa rodada sem mulher disputando
+    o Senado seria premissa falsa. Derivar o pool do insumo validado
+    resolve para qualquer rodada: com a lista do 2º turno sobra só
+    "governadora"; com uma lista cheia, voltam os demais. A grafia
+    canônica é a de CARGOS_2026 — cargo da lista que não bata com ela
+    (sujeira de grafia) fica de fora do pool. Lista vazia ou sem cargo
+    reconhecido deixa o pool vazio, e a guarda do planejamento aborta com
+    mensagem legível em vez de coletar premissa errada.
+    """
+    presentes = {cargo for _, cargo in CANDIDATAS_GENERO}
+    return tuple(c for c in CARGOS_2026 if c in presentes)
 
 
 def _nominal(key: str, tema: str, gravidade: int, texto: str,
@@ -880,7 +912,7 @@ INSTRUMENTO_GENERO = Instrumento(
     regras_extras=_REGRAS_GENERO,
     exemplar_repete_entre_conversas=True,
     candidatas=CANDIDATAS_GENERO,
-    cargos=CARGOS_2026,
+    cargos=_cargos_com_candidatas(),
 )
 
 
