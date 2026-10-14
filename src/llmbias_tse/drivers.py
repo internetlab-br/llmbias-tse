@@ -1473,13 +1473,13 @@ class Copilot(BaseDriver):
                 events.emit("copilot_relogin", passos=passos)
                 return
             try:
-                if page.locator("input[type='password']:visible").count():
-                    break
                 campo = page.locator("#i0116:visible, input[name='loginfmt']:visible")
                 tile = page.locator(f"[data-test-id='{email}'], "
                                     f"div[role='button']:has-text('{email}')")
                 kmsi = page.locator("#KmsiCheckboxField, input[name='DontShowAgain']")
-                if campo.count():
+                # Depois do "Avançar" o campo segue na tela por um instante;
+                # sem o limite o driver reenviaria o e-mail a cada volta.
+                if campo.count() and passos.count("email") < 3:
                     campo.first.fill(email)
                     page.locator("#idSIButton9, input[type='submit']").first.click()
                     passos.append("email")
@@ -1494,6 +1494,15 @@ class Copilot(BaseDriver):
                 elif tile.count():
                     tile.first.click()
                     passos.append("conta_salva")
+                elif page.locator("input[type='password']:visible").count():
+                    # A tela do e-mail traz um campo de senha no DOM que o
+                    # Playwright chega a dar como visível (14/10/2026: o
+                    # relogin desistia antes de preencher o e-mail). Só conta
+                    # como pedido de senha quando NÃO há campo de e-mail, e
+                    # por três rodadas seguidas.
+                    passos.append("senha")
+                    if passos[-3:] == ["senha"] * 3:
+                        break
             except Exception as e:
                 passos.append(f"erro:{type(e).__name__}")
             time.sleep(3)
