@@ -57,3 +57,24 @@ if ! pgrep -f "[v]igia.py --loop" >/dev/null; then
     infra/local/vigia.py --loop 180 --log "data/$RUN_ID/vigia.jsonl" \
     >> "$RUN_DIR/vigia.log" 2>&1 < /dev/null &
 fi
+
+# --- Chrome travado para a automação ---------------------------------------
+# Visto três vezes em 12–14/10/2026 (Copilot c1, DeepSeek c2 duas vezes), sempre
+# logo depois de um login manual: o Chrome responde no CDP, mas o
+# `connect_over_cdp` do runner morre ("Connection closed while reading from
+# the driver" / "Frame was detached"), cada lote sai "sem progresso" e o
+# play no painel não adianta. Reiniciar o contêiner resolve e mantém o login
+# (o perfil é volume). No máximo um reinício a cada 15 min por estação.
+for log in "$REPO"/data/runner.*.log; do
+  [ -f "$log" ] || continue
+  sessao="${log##*/runner.}"; sessao="${sessao%.log}"
+  ultimo=$(grep -a -n -E "connect_over_cdp: Connection closed|\] turno [0-9]+/" "$log" | tail -1)
+  case "$ultimo" in *connect_over_cdp*) ;; *) continue ;; esac
+  [ -n "$(find "$log" -mmin -10)" ] || continue
+  marca="/tmp/manter_vivo.reinicio.$sessao"
+  [ -n "$(find "$marca" -mmin -15 2>/dev/null)" ] && continue
+  touch "$marca"
+  echo "$(date -Is) $sessao: runner não conecta no Chrome; reiniciando o contêiner" \
+    >> "$RUN_DIR/vigia.log"
+  docker restart "coleta-$sessao" >/dev/null 2>&1
+done
