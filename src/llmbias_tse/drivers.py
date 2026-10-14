@@ -1499,8 +1499,28 @@ class Copilot(BaseDriver):
             time.sleep(3)
         events.alerta("copilot_deslogado",
                       "relogin automático não concluiu (senha/código ou tela "
-                      "desconhecida)", passos=passos)
+                      "desconhecida)", passos=passos, tela=self._descrever_tela(page))
         raise RuntimeError(f"Copilot: relogin automático falhou ({passos})")
+
+    @staticmethod
+    def _descrever_tela(page) -> dict:
+        """O que a tela de login pediu, SEM dados pessoais (e-mails trocados
+        por <email>): é o que diz se dá para automatizar o passo."""
+        try:
+            d = page.evaluate("""() => ({
+                titulo: document.title,
+                texto: document.body.innerText.slice(0, 600),
+                campos: [...document.querySelectorAll('input,button,[role=button],a')]
+                    .filter(e => e.offsetParent)
+                    .map(e => [e.tagName, e.id, e.name || '', e.type || '',
+                               (e.value || e.textContent || '').trim().slice(0, 40)]
+                               .join('|')).slice(0, 25)})""")
+        except Exception as e:
+            return {"erro": repr(e)}
+        tira = lambda t: re.sub(r"\S+@\S+", "<email>", re.sub(r"\s+", " ", t))
+        url = (page.url or "").split("?")[0]
+        return {"url": url, "titulo": tira(d["titulo"]), "texto": tira(d["texto"]),
+                "campos": [tira(c) for c in d["campos"]]}
 
     def open_new_chat(self, page) -> None:
         super().open_new_chat(page)
