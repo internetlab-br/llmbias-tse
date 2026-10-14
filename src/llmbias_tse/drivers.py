@@ -1419,6 +1419,93 @@ class Copilot(BaseDriver):
     response_timeout = 240.0
     start_timeout = 90.0
 
+    # Deslogado, `copilot.com/chat` redireciona direto para a tela de
+    # entrada da Microsoft. Visto em 13/10/2026: as duas contas caíram nela
+    # várias vezes no mesmo dia, com os cookies de login ainda válidos até
+    # 2027, e numa delas a estação ficou 12 h abortando conversas até alguém
+    # olhar. Na conta pessoal o reingresso só pede o e-mail (sem senha).
+    _hosts_login = ("login.microsoftonline.com", "login.live.com",
+                    "account.live.com", "login.microsoft.com")
+
+    def _email_login(self) -> str | None:
+        """E-mail da conta da estação. Fica no PERFIL (volume privado da
+        estação), nunca no repositório, que é público."""
+        email = os.environ.get("LLMBIAS_LOGIN_EMAIL")
+        if email:
+            return email.strip()
+        perfil = os.environ.get("LLMBIAS_PROFILE")
+        if perfil:
+            try:
+                return open(os.path.join(perfil, "login_email"),
+                            encoding="utf-8").read().strip() or None
+            except OSError:
+                return None
+        return None
+
+    def _em_login(self, page) -> bool:
+        return any(h in (page.url or "") for h in self._hosts_login)
+
+    def _garantir_login(self, page, timeout: float = 90) -> None:
+        """Se a página caiu na tela de entrada, refaz o login só com o e-mail.
+
+        Passos aceitos: e-mail + "Avançar", o "Continuar conectado?" (marca
+        "não mostrar de novo" e confirma) e o seletor de contas salvas. Se
+        aparecer senha, código ou qualquer coisa que não reconheça, LEVANTA:
+        isso precisa de uma pessoa, e tentar de novo a cada conversa só
+        queimaria o plano.
+        """
+        if not self._em_login(page):
+            return
+        email = self._email_login()
+        if not email:
+            events.alerta("copilot_deslogado",
+                          "tela de login e nenhum e-mail configurado no perfil")
+            raise RuntimeError("Copilot deslogado e sem e-mail para relogar")
+        fim = time.time() + timeout
+        passos = []
+        while time.time() < fim:
+            if not self._em_login(page):
+                try:
+                    capture.first_visible(page, self.composer_selectors,
+                                          timeout=30)
+                except Exception:
+                    pass
+                events.emit("copilot_relogin", passos=passos)
+                return
+            try:
+                if page.locator("input[type='password']:visible").count():
+                    break
+                campo = page.locator("#i0116:visible, input[name='loginfmt']:visible")
+                tile = page.locator(f"[data-test-id='{email}'], "
+                                    f"div[role='button']:has-text('{email}')")
+                kmsi = page.locator("#KmsiCheckboxField, input[name='DontShowAgain']")
+                if campo.count():
+                    campo.first.fill(email)
+                    page.locator("#idSIButton9, input[type='submit']").first.click()
+                    passos.append("email")
+                elif kmsi.count():
+                    try:
+                        kmsi.first.check(timeout=3000)
+                    except Exception:
+                        pass
+                    page.locator("#idSIButton9, button:has-text('Sim'), "
+                                 "button:has-text('Yes')").first.click()
+                    passos.append("continuar_conectado")
+                elif tile.count():
+                    tile.first.click()
+                    passos.append("conta_salva")
+            except Exception as e:
+                passos.append(f"erro:{type(e).__name__}")
+            time.sleep(3)
+        events.alerta("copilot_deslogado",
+                      "relogin automático não concluiu (senha/código ou tela "
+                      "desconhecida)", passos=passos)
+        raise RuntimeError(f"Copilot: relogin automático falhou ({passos})")
+
+    def open_new_chat(self, page) -> None:
+        super().open_new_chat(page)
+        self._garantir_login(page)
+
 
 class CopilotMomentary(Copilot):
     """Copilot em **chat temporário** (não salva no histórico nem usa/atualiza
@@ -1492,6 +1579,7 @@ class CopilotMomentary(Copilot):
         page.goto(self.new_chat_url, wait_until="domcontentloaded",
                   timeout=60000)
         time.sleep(self.settle_s)
+        self._garantir_login(page)
         capture.first_visible(page, self.composer_selectors, timeout=30)
         last_err = None
         for _ in range(4):
