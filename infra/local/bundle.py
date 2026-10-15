@@ -54,6 +54,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", default="data/experimento_2026_09")
     ap.add_argument("--saida", default="data")
+    ap.add_argument("--rodada", default="2",
+                    help="número da rodada, para o título do LEIA-ME")
     ap.add_argument("--sem-anotacoes", action="store_true",
                     help="não inclui as anotações do juiz (para o relatório "
                          "sair sem o capítulo dos juízes)")
@@ -208,7 +210,7 @@ def main() -> int:
         linhas_tab.append(f"| {p} | " + " | ".join(col) + " |")
     completas = sum(c["completa"] for c in convs)
     com_defeito = sum(1 for c in convs if c["turnos_com_defeito"])
-    (base / "LEIA-ME.md").write_text(f"""# Rodada 2 — {run.name}
+    leia = f"""# Rodada {args.rodada} — {run.name}
 
 Pacote gerado em {datetime.now(timezone.utc).isoformat(timespec="seconds")}.
 {len(convs)} conversas registradas, {completas} completas.
@@ -295,7 +297,20 @@ containers ficaram sem DNS quando a máquina de coleta mudou de rede). Essas
 
 `artifacts/` (HTML e PNG de cada turno, dezenas de GB) serve para depurar
 seletor quebrado, não para analisar. Vai separado, se alguém precisar.
-""", encoding="utf-8")
+"""
+    # O que muda de rodada para rodada (estado da coleta, quarentena,
+    # ressalvas) vive em `notas_bundle/<run>.md`. Sem esse arquivo o texto
+    # acima é o da rodada 2, que segue reproduzível como foi entregue; com
+    # ele, as seções entre "Estado da coleta" e "O que ficou de fora" saem
+    # dele. As chaves {com_defeito}, {n_anot} e {n_painel} são preenchidas.
+    notas = Path(__file__).resolve().parent / "notas_bundle" / f"{run.name}.md"
+    if notas.exists():
+        ini = leia.index("## Estado da coleta")
+        fim = leia.index("## O que ficou de fora")
+        corpo = notas.read_text(encoding="utf-8").format(
+            com_defeito=com_defeito, n_anot=n_anot, n_painel=n_painel)
+        leia = leia[:ini] + corpo.rstrip() + "\n\n" + leia[fim:]
+    (base / "LEIA-ME.md").write_text(leia, encoding="utf-8")
 
     zipado = shutil.make_archive(str(base), "zip", root_dir=base.parent,
                                  base_dir=base.name)
