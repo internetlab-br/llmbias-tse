@@ -1,0 +1,391 @@
+# Coleta multiplataforma num host só.
+#
+# Uma estação por plataforma, um painel e um Caddy na frente. O Caddy é a
+# única porta publicada: ele serve o painel e faz proxy das telas noVNC, então
+# o cloudflared precisa apontar para um endereço só e ninguém abre 8 portas.
+#
+# Subir tudo:            docker compose up -d
+# Subir uma estação:     docker compose up -d coleta-gemini
+# Ver a tela de uma:     http://localhost:8080/vnc/gemini/vnc.html
+#
+# As estações NÃO começam a coletar sozinhas (AUTO_INICIAR=0): estação nova
+# precisa de um humano logando na conta pela tela remota antes de qualquer
+# coisa. Depois do login, o play é no painel.
+
+name: llmbias-coleta
+
+x-estacao: &estacao
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      # Tem de casar com o dono de `data/` no host. Ver Dockerfile.
+      UID: ${UID:-1000}
+      GID: ${GID:-1000}
+  image: llmbias-coleta:latest
+  restart: unless-stopped
+  # Chrome escreve muito em /dev/shm; o padrão de 64 MB do Docker faz a aba
+  # morrer no meio de uma conversa longa.
+  shm_size: 2gb
+  volumes:
+    - ../../:/app                      # repo (código muda sem rebuild)
+    - ../../data:/dados                # rodadas: o painel lê o mesmo diretório
+  environment: &ambiente
+    RUN_ID: ${RUN_ID:-experimento_2026_09}
+    DADOS: /dados
+    EIXOS: ${EIXOS:-voto genero integridade}
+    LOTE: ${LOTE:-20}
+    TURN_DELAY: ${TURN_DELAY:-5}
+    CONV_DELAY: ${CONV_DELAY:-12}
+    AUTO_INICIAR: ${AUTO_INICIAR:-0}
+    # Trave o IP de saída esperado para o container abortar se alguém subir
+    # isto fora da rede de casa (ou com VPN ligada). Vazio = sem trava.
+    IP_ESPERADO: ${IP_ESPERADO:-}
+    # Só para a variante em nuvem: SOCKS de um exit node residencial.
+    PROXY_SOCKS: ${PROXY_SOCKS:-}
+
+services:
+  coleta-gemini.c1:
+    <<: *estacao
+    container_name: coleta-gemini.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: gemini
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: gemini.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_gemini_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini.c1:/perfil
+
+  coleta-gemini.c2:
+    <<: *estacao
+    container_name: coleta-gemini.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: gemini
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: gemini.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_gemini_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/gemini.c2:/perfil
+
+  coleta-chatgpt.c1:
+    <<: *estacao
+    container_name: coleta-chatgpt.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: chatgpt
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: chatgpt.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_chatgpt_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt.c1:/perfil
+
+  coleta-chatgpt.c2:
+    <<: *estacao
+    container_name: coleta-chatgpt.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: chatgpt
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: chatgpt.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_chatgpt_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/chatgpt.c2:/perfil
+
+  coleta-claude.c1:
+    <<: *estacao
+    container_name: coleta-claude.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: claude
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: claude.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_claude_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude.c1:/perfil
+
+  coleta-claude.c2:
+    <<: *estacao
+    container_name: coleta-claude.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: claude
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: claude.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_claude_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/claude.c2:/perfil
+
+  coleta-grok.c1:
+    <<: *estacao
+    container_name: coleta-grok.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: grok
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: grok.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_grok_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok.c1:/perfil
+
+  coleta-grok.c2:
+    <<: *estacao
+    container_name: coleta-grok.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: grok
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: grok.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_grok_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/grok.c2:/perfil
+
+  coleta-deepseek.c1:
+    <<: *estacao
+    container_name: coleta-deepseek.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: deepseek
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: deepseek.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_deepseek_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek.c1:/perfil
+
+  coleta-deepseek.c2:
+    <<: *estacao
+    container_name: coleta-deepseek.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: deepseek
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: deepseek.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_deepseek_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/deepseek.c2:/perfil
+
+  coleta-copilot.c1:
+    <<: *estacao
+    container_name: coleta-copilot.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: copilot
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: copilot.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_copilot_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot.c1:/perfil
+
+  coleta-copilot.c2:
+    <<: *estacao
+    container_name: coleta-copilot.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: copilot
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: copilot.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_copilot_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/copilot.c2:/perfil
+
+  coleta-google_aimode.c1:
+    <<: *estacao
+    container_name: coleta-google_aimode.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: google_aimode
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: google_aimode.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_google_aimode_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode.c1:/perfil
+
+  coleta-google_aimode.c2:
+    <<: *estacao
+    container_name: coleta-google_aimode.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: google_aimode
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: google_aimode.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_google_aimode_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/google_aimode.c2:/perfil
+
+  coleta-whatsapp_metaai.c1:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai.c1
+    environment:
+      <<: *ambiente
+      PLATAFORMA: whatsapp_metaai
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 1/2
+      SESSAO: whatsapp_metaai.c1
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_whatsapp_metaai_c1:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai.c1:/perfil
+
+  coleta-whatsapp_metaai.c2:
+    <<: *estacao
+    container_name: coleta-whatsapp_metaai.c2
+    environment:
+      <<: *ambiente
+      PLATAFORMA: whatsapp_metaai
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      FATIA: 2/2
+      SESSAO: whatsapp_metaai.c2
+      N_FATIAS: 2
+      # Declare aqui QUAL conta está logada nesta estação; vai gravado em cada
+      # conversa. google_aimode não faz login, então fica vazio.
+      LLMBIAS_CONTA: ${CONTA_whatsapp_metaai_c2:-}
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+      - ./perfis/whatsapp_metaai.c2:/perfil
+
+  painel:
+    image: llmbias-coleta:latest
+    container_name: coleta-painel
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-lc"]
+    # Lista com um item só, não string: `command:` em string é quebrado em
+    # palavras pelo Compose, e o `bash -lc` receberia só "uv" como script.
+    command:
+      - |
+        uv sync --extra painel
+        exec uv run uvicorn infra.local.dashboard.app:app --host 0.0.0.0 --port 8000
+    working_dir: /app
+    environment:
+      RUN_DIR: /dados/${RUN_ID:-experimento_2026_09}
+      N_FATIAS: "2"
+      EIXOS: voto integridade
+      EIXOS_SEGUINTES: ${EIXOS_SEGUINTES:-}
+      SESSOES: ${SESSOES:-gemini chatgpt claude grok deepseek copilot google_aimode whatsapp_metaai}
+      UV_CACHE_DIR: /tmp/uv-cache
+      UV_LINK_MODE: copy
+      UV_PROJECT_ENVIRONMENT: /home/coleta/venv
+    volumes:
+      - ../../:/app
+      - ../../data:/dados
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: coleta-caddy
+    restart: unless-stopped
+    depends_on: [painel]
+    ports:
+      - "${PORTA:-8080}:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.42.0.0/16
