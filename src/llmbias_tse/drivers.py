@@ -798,6 +798,13 @@ class Gemini(BaseDriver):
         "button.send-button.stop",
     ]
     settle_s = 2.0
+    # Mesma regra do Claude (ver `capture.wait_until_idle`): com "Parar
+    # resposta" na tela, texto parado não é fim. Na rodada 3, já no modelo
+    # "Auto", que pensa com pausas, 83 turnos foram gravados com o botão
+    # ainda lá — metade cortada no meio da frase e, em 14, o pedaço que
+    # faltava foi parar no começo do turno seguinte. Na rodada 2: zero.
+    stable_for_busy = 120.0
+    response_timeout = 420.0
 
 
 class GeminiMomentary(Gemini):
