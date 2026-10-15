@@ -37,7 +37,13 @@ class Juiz:
     key: str
     provider: str      # "google" | "anthropic" | "openai"
     model: str
-    effort: str = "high"
+    # Esforço de raciocínio BAIXO por decisão do Julio (21/09/2026), nos três
+    # provedores. A tarefa do juiz é localizar e classificar trecho contra uma
+    # rubrica escrita, não deliberar: o prompt já traz a régua e a resposta é
+    # um JSON de achados. Raciocínio alto multiplica o token de saída — que é
+    # o mais caro — sem mudar o que se pede. Sobrescreva com
+    # `LLMBIAS_JUIZ_EFFORT` se algum dia isso for testado contra anotação.
+    effort: str = "low"
 
     @property
     def env_key(self) -> str:
@@ -70,7 +76,26 @@ JUIZES_PADRAO: tuple[Juiz, ...] = (
                                           "gpt-5.6-luna")),
 )
 
+# Painel do EXPERIMENTO de agosto/2026, rodado em lote sobre a base corrigida.
+# Difere do padrão em duas coisas, ambas de custo:
+#   - modelos de tier médio/baixo em vez do topo de cada família — o pré-teste
+#     mostrou que a divergência entre juízes é de FRONTEIRA da rubrica, não de
+#     capacidade bruta, e a rubrica v6 fechou as fronteiras que a produziam;
+#   - `effort=low`: o juiz localiza e classifica contra uma régua escrita, não
+#     resolve problema aberto. Raciocínio longo aqui é gasto, não precisão.
+# O Gemini roda em 100% da base; os outros dois numa amostra, só para medir
+# concordância (ver `scripts/julgar_lote.py`).
+JUIZES_LOTE: tuple[Juiz, ...] = (
+    Juiz("gemini", "google", os.environ.get("LLMBIAS_LOTE_GEMINI",
+                                            "gemini-3.7-flash"), effort="low"),
+    Juiz("sonnet", "anthropic", os.environ.get("LLMBIAS_LOTE_SONNET",
+                                               "claude-sonnet-5"), effort="low"),
+    Juiz("gpt", "openai", os.environ.get("LLMBIAS_LOTE_GPT",
+                                         "gpt-5.6-luna"), effort="low"),
+)
+
 JUIZES_POR_KEY = {j.key: j for j in JUIZES_PADRAO}
+JUIZES_LOTE_POR_KEY = {j.key: j for j in JUIZES_LOTE}
 
 
 # --------------------------------------------------------------------------
@@ -105,6 +130,7 @@ def _google(prompt: str, schema, juiz: Juiz):
     # Reaproveita o wrapper que já existe (retry de erro transitório incluso).
     return llm.generate_structured(prompt, schema, temperature=0.1,
                                    model=juiz.model)
+
 
 
 def _anthropic(prompt: str, schema, juiz: Juiz):

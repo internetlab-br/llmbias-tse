@@ -114,7 +114,14 @@ def main() -> None:
     p_cj.add_argument("--desenho-corrida", default=None,
                       help="quais corridas o eixo voto usa: majoritarias "
                            "(default: presidente+governador+senador), "
-                           "so_presidente ou cinco_cargos")
+                           "so_presidente, cinco_cargos ou segundo_turno "
+                           "(rodada 3: presidência + os 7 governos em "
+                           "disputa no 2º turno)")
+    p_cj.add_argument("--calendario", default=None,
+                      choices=["2026", "rodada3"],
+                      help="calendário gravado no plano: 2026 (rodadas 1 e 2) "
+                           "ou rodada3 (entre os turnos). Só no PLANEJAMENTO; "
+                           "ao retomar, vale o que está no plano")
     p_cj.add_argument("--balanceamento-corrida", default=None,
                       choices=["cargo", "celula", "iid"],
                       help="como os perfis se repartem entre as corridas: "
@@ -158,6 +165,7 @@ def main() -> None:
             conv_delay=args.conv_delay,
         ))
     elif args.cmd == "conjoint":
+        from . import corridas
         from .conjoint_experiment import run as run_conjoint
         sys.exit(run_conjoint(
             n_profiles=args.n_profiles, seed=args.seed,
@@ -173,6 +181,10 @@ def main() -> None:
                if args.desenho_corrida else {}),
             **({"balanceamento_corrida": args.balanceamento_corrida}
                if args.balanceamento_corrida else {}),
+            **({"calendario": {"2026": corridas.CALENDARIO_2026,
+                               "rodada3": corridas.CALENDARIO_RODADA3}[
+                                   args.calendario]}
+               if args.calendario else {}),
             phase=args.phase,
         ))
     elif args.cmd == "tools":

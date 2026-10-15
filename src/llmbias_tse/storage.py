@@ -15,6 +15,7 @@ de conta pessoal).
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,117 @@ class Exchange:
     conversation_id: str | None = None  # agrupa os turnos de uma conversa
     turn: int | None = None             # turno 1-based dentro da conversa
     n_turns: int | None = None          # total de turnos da conversa
+
+
+_REC_CACHE: dict[str, dict] = {}
+
+
+def _recuperados(run_dir=None) -> dict:
+    """Índice `(conversa, turno) -> recuperação` lido de `recuperados.jsonl`.
+
+    Arquivo opcional; sem ele a leitura segue igual. Existe porque em alguns
+    turnos o texto gravado é um PREFIXO do que a página tinha, e o fim está no
+    HTML do artefato. Recuperar dali foi decisão do time em 21/09/2026 —
+    recoletar no WhatsApp custa horas por conversa.
+    """
+    if run_dir is None:
+        return {}
+    base = Path(run_dir)
+    chave = str(base.resolve())
+    if chave in _REC_CACHE:
+        return _REC_CACHE[chave]
+    if not base.is_dir():
+        # Falha tem de parecer falha: sem o run dir não há como saber se a
+        # conversa tem emenda, e seguir calado devolveria o texto truncado
+        # como se fosse o completo — foi o que aconteceu ao rodar de uma
+        # worktree sem `data/` (50 turnos do WhatsApp, out/2026).
+        print(f"[storage] AVISO: run dir {base} não existe; emendas de "
+              f"`recuperados.jsonl` NÃO aplicadas", file=sys.stderr, flush=True)
+    idx: dict = {}
+    f = base / "recuperados.jsonl"
+    if f.exists():
+        for linha in f.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(linha)
+            except Exception:
+                continue
+            idx[(r["conversation_id"], r["turno"])] = r
+    _REC_CACHE[chave] = idx
+    return idx
+
+
+def turnos_limpos(conversation: dict) -> list[dict]:
+    """Os turnos da conversa com o cromo de interface removido da resposta.
+
+    Aplicada NA LEITURA, não na gravação: o arquivo em `conversations/` é o
+    registro BRUTO do que a página devolveu, e reescrever resposta já coletada
+    é mexer no conteúdo do experimento. Quem consome — o juiz e a base de
+    análise — lê por aqui.
+
+    Existe porque um cromo pode ser descoberto depois de a conversa estar
+    gravada, e foi o que aconteceu em 18/09/2026: 124 de 439 turnos do Google
+    AI Mode carregavam 132 chars do aria-live do botão de copiar ("Copiado
+    para a área de transferência…"), colados no fim da resposta. O driver
+    passou a cortá-los na captura, mas os já gravados só se corrigem aqui —
+    e aqui a correção vale para todos, velhos e novos, sem perder o bruto.
+
+    Usa o `limpar_resposta` DO DRIVER da plataforma, que é onde mora o
+    conhecimento sobre o rodapé de cada UI. Plataforma desconhecida passa
+    intacta.
+    """
+    from .drivers import REGISTRY
+    from .conjoint_experiment import PLATFORM_DRIVERS
+
+    # O run da PRÓPRIA conversa. Até out/2026 o padrão era a rodada 2 fixa no
+    # código, e a chave é (conversa, turno) — que se repete entre rodadas: as
+    # emendas da rodada 2 seriam coladas nas respostas da rodada 3.
+    rd = conversation.get("run_dir") or (
+        DATA_ROOT / conversation["run_id"] if conversation.get("run_id") else None)
+    recuperados = _recuperados(rd)
+    plat = conversation.get("platform")
+    chave = (PLATFORM_DRIVERS.get(plat) or (plat,))[0]
+    driver = REGISTRY.get(chave)
+    turns = conversation.get("turns") or []
+    if driver is None:
+        return list(turns)
+    d = driver()
+    cid = conversation.get("conversation_id")
+    saida = []
+    for t in turns:
+        r = t.get("response")
+        if not r:
+            saida.append(t)
+            continue
+        # Continuação recuperada do artefato, quando existe (ver
+        # `infra/local/recuperar_artefato.py`). Emendada NA LEITURA, como o
+        # resto: o bruto continua sendo o que a captura trouxe.
+        rec = recuperados.get((cid, t.get("turn")))
+        emendado = r
+        # Só emenda a resposta de onde a recuperação saiu: o tamanho gravado
+        # tem de bater. Protege contra aplicar uma emenda a outra resposta
+        # com o mesmo (conversa, turno).
+        if rec and rec.get("chars_gravados") not in (None, len(r)):
+            rec = None
+        if rec:
+            emendado = r.rstrip() + " " + rec["continuacao"]
+        limpo = d.limpar_resposta(emendado)
+        if limpo == r:
+            saida.append(t)   # nada a fazer neste turno
+            continue
+        novo = dict(t)
+        novo["response"] = limpo
+        novo["response_chars"] = len(limpo)
+        # Guarda o que entrou e o que saiu: sem isto, "o texto mudou" vira
+        # afirmação sem prova, e a diferença entre o bruto e o lido fica
+        # indevassável. Comparar com `emendado`, e não com `r`, senão a
+        # recuperação aparece como cromo REMOVIDO negativo.
+        cromo = len(emendado) - len(limpo)
+        if cromo:
+            novo["chars_cromo_removido"] = cromo
+        if rec:
+            novo["chars_recuperados"] = rec["chars_recuperados"]
+        saida.append(novo)
+    return saida
 
 
 class RunStore:
