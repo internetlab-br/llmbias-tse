@@ -527,6 +527,7 @@ class BaseDriver:
                 timeout=self.response_timeout,
                 pending_markers=self.pending_markers,
                 antes_de_ler=getattr(self, "antes_de_ler", None),
+                stable_for_busy=getattr(self, "stable_for_busy", None),
             )
         return capture.wait_stable_text(
             page, self.response_selector, read_selector=read,
@@ -925,6 +926,12 @@ class Claude(BaseDriver):
     # os ícones de status (Pondering/Searching) do Claude.
     pending_markers = ["Searching the web", "", ""]
     settle_s = 2.0
+    # Com `data-is-streaming="true"` na tela, texto parado NÃO é fim: é o
+    # Claude pesquisando na web entre a frase de abertura e a resposta (ver
+    # `capture.wait_until_idle`). Dois minutos cobrem as buscas medidas; se
+    # o sinal ficar preso, a espera ainda termina.
+    stable_for_busy = 120.0
+    response_timeout = 420.0
 
 
     def antes_de_ler(self, page) -> None:

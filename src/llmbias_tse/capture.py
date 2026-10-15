@@ -465,6 +465,7 @@ def wait_until_idle(
     poll: float = 0.4,
     pending_markers=(),
     antes_de_ler=None,
+    stable_for_busy: float | None = None,
 ) -> str:
     """Espera a geração terminar, com DOIS sinais combinados (o 1º que vier
     vence):
@@ -480,6 +481,14 @@ def wait_until_idle(
     `ignore_text`: nunca retorna enquanto o texto lido for igual a este valor
     (o último balão do turno ANTERIOR). Garante que multi-turno capture a
     resposta NOVA, e não a antiga, caso o novo balão ainda não tenha surgido.
+
+    `stable_for_busy`: quanto tempo de texto parado vale como fim ENQUANTO o
+    indicador de 'gerando' ainda está na tela. Sem ele vale `stable_for`, e
+    isso cortou o Claude na rodada 3 (out/2026): o Sonnet 5.5 escreve uma
+    frase ("Vou checar os fatos antes de responder."), faz a busca na web com
+    o texto parado e só então escreve a resposta — 136 turnos de 84 conversas
+    saíram só com a frase de abertura, com `data-is-streaming="true"` ainda no
+    HTML salvo.
     """
     read = [read_selector, response_selector] if read_selector else [response_selector]
     deadline = time.time() + timeout
@@ -519,10 +528,12 @@ def wait_until_idle(
             else:
                 idle_since = None
             # Sinal 2: texto estável (mesmo com 'busy' preso).
+            limite = (stable_for_busy if busy and stable_for_busy
+                      else stable_for)
             if text == prev:
                 if stable_since is None:
                     stable_since = time.time()
-                elif time.time() - stable_since >= stable_for:
+                elif time.time() - stable_since >= limite:
                     return text_s
             else:
                 stable_since = None
