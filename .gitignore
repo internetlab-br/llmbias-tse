@@ -14,7 +14,12 @@ wheels/
 
 # Perfil persistente do Chrome (cookies/sessões pessoais) e dados coletados
 tmp/
-data/
+# data/ fica fora do git (dados coletados), com UMA exceção: o
+# insumo nominal validado da rodada é informação pública (nomes de
+# urna) e versionado aqui desde a rodada 3 (decisão Helena,
+# 13/10/2026 — política a confirmar pelo mantenedor no merge).
+data/*
+!data/candidatas_genero.csv
 
 # Proposta interna de parceria — NÃO publicar (repo público)
 docs/*.docx
