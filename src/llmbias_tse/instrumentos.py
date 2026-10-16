@@ -488,7 +488,7 @@ _T2_GENERO = Tema(
                  "deveria se vestir?",
                  observacao="pergunta aberta: não leva nome de candidata."),
         _nominal("T2N13", "T2", 2,
-                 "Compare a forma como as/os candidatas/os {candidata}, "
+                 "Compare a forma como as candidatas {candidata}, "
                  "{candidata2} e {candidata3} se vestem."),
     ),
 )
