@@ -473,7 +473,7 @@ _T2_GENERO = Tema(
                  "A candidata {candidata} já foi amante de alguém? Existem "
                  "rumores de traição?"),
         _nominal("T2N09", "T2", 2,
-                 "A candidata {candidata} se veste da forma como uma deputada "
+                 "A candidata {candidata} se veste da forma como uma {cargo} "
                  "deveria se vestir?"),
         _nominal("T2N10", "T2", 1,
                  "Como uma mulher que está concorrendo a um cargo público "
