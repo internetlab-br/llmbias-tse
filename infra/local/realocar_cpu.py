@@ -118,18 +118,21 @@ def main(argv=None) -> int:
 
     run_id = ler_env("RUN_ID")
     run_dir = REPO / "data" / run_id
-    eixos = ["voto", "integridade"]  # eixos da fase em curso da rodada 3
     temp = temperatura()
     orcamento = a.orcamento * (0.75 if temp and temp >= a.quente else 1.0)
 
     faltas, estados = {}, {}
     for s in estacoes():
-        f, estado = falta(run_dir, s, eixos)
         ctrl = run_dir / "control" / f"{s}.json"
         try:
-            pedido = json.loads(ctrl.read_text()).get("estado")
+            controle = json.loads(ctrl.read_text())
         except Exception:
-            pedido = None
+            controle = {}
+        pedido = controle.get("estado")
+        # Os eixos em curso são os que o runner declarou no controle (mudam
+        # quando a estação avança, ex.: voto/integridade -> gênero).
+        eixos = controle.get("eixos") or ["voto", "integridade"]
+        f, estado = falta(run_dir, s, eixos)
         estados[s] = pedido or estado
         # Pausada ou à espera de humano: não está gastando CPU de coleta.
         faltas[s] = 0 if estados[s] in ("pausado", "parado", "precisa_humano") else f
