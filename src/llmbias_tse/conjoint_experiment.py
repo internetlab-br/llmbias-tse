@@ -192,6 +192,14 @@ def _snapshot_rubrics(store: RunStore, eixos: list[str]) -> dict[str, RubricGrid
     if not path.exists():
         _save_json(path, {k: r.to_dict() for k, r in rubrics.items()})
         print(f"[conjoint] rubricas 4.0 (curadas) registradas em {path}")
+    else:
+        # Eixo acrescentado depois (extensão do plano por eixo): a rubrica dele
+        # entra no registro; as já gravadas não são tocadas.
+        gravadas = json.loads(path.read_text(encoding="utf-8"))
+        novas = {k: r.to_dict() for k, r in rubrics.items() if k not in gravadas}
+        if novas:
+            _save_json(path, {**gravadas, **novas})
+            print(f"[conjoint] rubricas de {sorted(novas)} acrescentadas a {path}")
     return rubrics
 
 
@@ -267,6 +275,39 @@ def _conferir_plano_compativel(plano: dict, eixos, desenho_corrida: str,
         )
 
 
+def _salvar_plano_csv(store: RunStore, conversas: list[dict]) -> None:
+    """`plano_coleta.csv`: uma linha por conversa planejada, para inspeção."""
+    csv_rows = [
+        {
+            "conversation_id": c["conversation_id"],
+            "platform": c["platform"], "perfil_id": c["perfil_id"],
+            "eixo": c["eixo"], "turnos": c["turnos"],
+            "turnos_uma_pergunta": c["turnos_uma_pergunta"],
+            "turnos_duas_perguntas": c["turnos_duas_perguntas"],
+            "perguntas_substantivas": c["perguntas_substantivas"],
+            "alternativas": "+".join(c["alternativas"]),
+            # corrida atribuída (eixo voto): fator de ESTÍMULO, não de
+            # perfil — aparece dentro da pergunta feita à plataforma.
+            "corrida_cargo": (c["corrida"] or {}).get("cargo", ""),
+            "corrida_uf": (c["corrida"] or {}).get("uf") or "",
+            "corrida_descricao": (c["corrida"] or {}).get("descricao", ""),
+            "n_temas": sum(1 for v in c["temas_flags"].values() if v),
+            "temas_incluidos": "+".join(c["temas_incluidos"]),
+            # tema_Tx = variável independente (sorteada); aparicoes_Tx =
+            # quantas perguntas o roteiro dedicou ao tema (dose).
+            **{f"tema_{cod}": int(bool(v))
+               for cod, v in c["temas_flags"].items()},
+            **{f"aparicoes_{cod}": n
+               for cod, n in c["cobertura_temas"].items()},
+        }
+        for c in conversas
+    ]
+    pd.DataFrame(csv_rows).to_csv(
+        store.dir / "plano_coleta.csv", index=False,
+        encoding="utf-8-sig", sep=";",
+    )
+
+
 def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                         seed: int, n_turns: int | None,
                         tema_prob: float = DEFAULT_TEMA_PROB,
@@ -274,6 +315,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
                         desenho_corrida: str = corridas.DESENHO_PADRAO,
                         calendario: corridas.Calendario | None = None,
                         balanceamento: str = corridas.BALANCEAMENTO_PADRAO,
+                        fatiado: bool = False,
                         ) -> tuple[dict[str, dict[str, tuple]],
                                    dict[str, dict[str, dict[str, bool]]],
                                    dict[str, dict[str, corridas.Corrida]]]:
@@ -408,6 +450,38 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
         # plataformas rápidas fecharam o alvo, dá para ir além" sem invalidar
         # o pré-registro do que já foi coletado. A extensão fica registrada
         # no próprio plano, com data e tamanhos.
+        # EXTENSÃO POR EIXO: um eixo pedido que o plano não tem entra como
+        # linhas NOVAS, para todos os perfis e plataformas do plano. Rodada 3
+        # (out/2026): voto e integridade foram planejados e coletados primeiro,
+        # e o gênero esperou a revisão da Helena (v12, insumo do 2º turno).
+        # Sem isto o roteiro do gênero seria calculado na hora da coleta e
+        # nunca entraria no pré-registro.
+        eixos_novos = [e for e in eixos if e not in plano_anterior["eixos"]]
+        if eixos_novos:
+            if fatiado:
+                raise SystemExit(
+                    f"[conjoint] ABORTADO: o plano não tem os eixos "
+                    f"{eixos_novos}, e esta execução tem só uma FATIA dos "
+                    f"perfis. Estenda o plano uma vez, com todos os perfis: "
+                    f"`conjoint --run-id {store.run_id} --eixos "
+                    f"{' '.join(eixos_novos)} --phase plan` (sem --fatia).")
+            novas = [_entrada(pl, pr, e) for pl in plano_anterior["platforms"]
+                     for pr in profiles for e in eixos_novos]
+            plano_anterior = dict(plano_anterior)
+            plano_anterior["conversas"] = list(plano_anterior["conversas"]) + novas
+            plano_anterior["eixos"] = list(plano_anterior["eixos"]) + eixos_novos
+            plano_anterior["avisos"] = {**(plano_anterior.get("avisos") or {}),
+                                        **{e: avisos.get(e, []) for e in eixos_novos}}
+            plano_anterior.setdefault("extensoes", []).append({
+                "em": _now_iso(),
+                "eixos_acrescentados": eixos_novos,
+                "conversas_acrescentadas": len(novas),
+            })
+            _save_json(path, plano_anterior)
+            _salvar_plano_csv(store, plano_anterior["conversas"])
+            print(f"[conjoint] plano ESTENDIDO: +eixos {eixos_novos}, "
+                  f"+{len(novas)} conversas planejadas. As linhas anteriores "
+                  f"não foram tocadas.")
         ja_no_plano = {c["perfil_id"] for c in plano_anterior.get("conversas", ())}
         faltam = [pr for pr in profiles if pr.id not in ja_no_plano]
         if not faltam:
@@ -448,35 +522,7 @@ def _load_or_build_plan(store: RunStore, profiles, platforms, eixos,
             "platforms": list(platforms), "eixos": list(eixos),
             "conversas": conversas, "avisos": avisos,
         })
-        csv_rows = [
-            {
-                "conversation_id": c["conversation_id"],
-                "platform": c["platform"], "perfil_id": c["perfil_id"],
-                "eixo": c["eixo"], "turnos": c["turnos"],
-                "turnos_uma_pergunta": c["turnos_uma_pergunta"],
-                "turnos_duas_perguntas": c["turnos_duas_perguntas"],
-                "perguntas_substantivas": c["perguntas_substantivas"],
-                "alternativas": "+".join(c["alternativas"]),
-                # corrida atribuída (eixo voto): fator de ESTÍMULO, não de
-                # perfil — aparece dentro da pergunta feita à plataforma.
-                "corrida_cargo": (c["corrida"] or {}).get("cargo", ""),
-                "corrida_uf": (c["corrida"] or {}).get("uf") or "",
-                "corrida_descricao": (c["corrida"] or {}).get("descricao", ""),
-                "n_temas": sum(1 for v in c["temas_flags"].values() if v),
-                "temas_incluidos": "+".join(c["temas_incluidos"]),
-                # tema_Tx = variável independente (sorteada); aparicoes_Tx =
-                # quantas perguntas o roteiro dedicou ao tema (dose).
-                **{f"tema_{cod}": int(bool(v))
-                   for cod, v in c["temas_flags"].items()},
-                **{f"aparicoes_{cod}": n
-                   for cod, n in c["cobertura_temas"].items()},
-            }
-            for c in conversas
-        ]
-        pd.DataFrame(csv_rows).to_csv(
-            store.dir / "plano_coleta.csv", index=False,
-            encoding="utf-8-sig", sep=";",
-        )
+        _salvar_plano_csv(store, conversas)
         print(f"[conjoint] plano de coleta montado: {len(conversas)} conversas "
               f"planejadas -> {path}")
 
@@ -1344,7 +1390,7 @@ def run(n_profiles: int = 3, seed: int = 2026,
         store, profiles, platforms, eixos, seed, n_turns,
         tema_prob=tema_prob, min_temas=min_temas,
         desenho_corrida=desenho_corrida, calendario=calendario,
-        balanceamento=balanceamento_corrida,
+        balanceamento=balanceamento_corrida, fatiado=bool(fatia),
     )
 
     if phase == "plan":
