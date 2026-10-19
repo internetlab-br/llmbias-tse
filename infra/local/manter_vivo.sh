@@ -78,3 +78,32 @@ for log in "$REPO"/data/runner.*.log; do
     >> "$RUN_DIR/vigia.log"
   docker restart "coleta-$sessao" >/dev/null 2>&1
 done
+
+# --- coleta travada sem morrer -----------------------------------------------
+# 19/10/2026: o processo da coleta do chatgpt.c1 ficou 6 h parado no meio de
+# uma conversa (turno 6), vivo e sem erro, e o runner não percebe processo
+# vivo. Estação "rodando", com `conjoint` no ar e sem NENHUM evento há 40 min:
+# mata o `conjoint`; o runner abre o próximo lote e a conversa é refeita do
+# turno 1. O turno mais longo previsto (Claude/Gemini) tem teto de 7 min.
+tail -n 20000 "$RUN_DIR/events.jsonl" 2>/dev/null | python3 -c '
+import sys, json, datetime as dt
+ult = {}
+for l in sys.stdin:
+    try: d = json.loads(l)
+    except Exception: continue
+    if d.get("plataforma"): ult[d["plataforma"]] = d["ts"]
+agora = dt.datetime.now(dt.timezone.utc)
+for s, ts in ult.items():
+    if (agora - dt.datetime.fromisoformat(ts)).total_seconds() > 2400:
+        print(s)
+' | while read -r sessao; do
+  estado=$(python3 -c "import json;print(json.load(open('$RUN_DIR/control/$sessao.json')).get('estado') or 'rodando')" 2>/dev/null)
+  [ "$estado" = "rodando" ] || continue
+  docker exec "coleta-$sessao" pgrep -f "llmbias_tse conjoint" >/dev/null 2>&1 || continue
+  marca="/tmp/manter_vivo.travada.$sessao"
+  [ -n "$(find "$marca" -mmin -40 2>/dev/null)" ] && continue
+  touch "$marca"
+  echo "$(date -Is) $sessao: 40 min sem evento com a coleta no ar; matando o conjoint" \
+    >> "$RUN_DIR/vigia.log"
+  docker exec "coleta-$sessao" pkill -f "llmbias_tse conjoint" >/dev/null 2>&1
+done

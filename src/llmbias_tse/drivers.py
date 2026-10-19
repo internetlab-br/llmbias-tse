@@ -758,7 +758,11 @@ class ChatGPTMomentary(ChatGPT):
         page.goto(self.new_chat_url, wait_until="domcontentloaded",
                   timeout=60000)
         time.sleep(self.settle_s)
-        deadline = time.time() + 12
+        # 30 s, não 12: com a máquina quente e a CPU limitada (19/10/2026), o
+        # ChatGPT levava mais de 12 s para desenhar o rótulo de conversa
+        # temporária e a conversa era abortada com o modo já ativo. O prazo só
+        # alonga a espera; sem confirmação, continua abortando.
+        deadline = time.time() + 30
         while time.time() < deadline:
             if self._momentary_active(page):
                 # Depois de confirmar o modo, e não antes: o aviso é do modo
