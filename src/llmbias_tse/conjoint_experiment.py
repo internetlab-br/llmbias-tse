@@ -976,10 +976,16 @@ def generate_conversations(store: RunStore, profiles, platforms, eixos,
                                       plan_roteiros, plan_corridas,
                                       calendario)
         finally:
-            # Não fecha a aba do WhatsApp (preserva a sessão para retomadas).
+            # NÃO fecha a aba: ela é a ÚLTIMA janela do Chrome (as outras foram
+            # fechadas acima), e Chrome sem janela ENCERRA — o contêiner, que
+            # espera o processo do Chrome, morria junto ao fim de todo lote e
+            # voltava pelo `restart` (visto em 19/10/2026: ~40 reinícios por
+            # hora nas 16 estações, cada um custando minutos de coleta e os
+            # cookies de sessão, que é o que fazia o Copilot deslogar). Deixa
+            # a aba em branco; o lote seguinte a fecha ao abrir a dele.
             if page is not wa_page:
                 try:
-                    page.close()
+                    page.goto("about:blank")
                 except Exception:
                     pass
 
