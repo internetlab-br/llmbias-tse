@@ -935,7 +935,10 @@ class Claude(BaseDriver):
     # Fase de thinking/pesquisa do Claude: enquanto o texto lido for isto, não é
     # a resposta final (evita truncar em "Searching the web"). / são
     # os ícones de status (Pondering/Searching) do Claude.
-    pending_markers = ["Searching the web", "", ""]
+    # "O Claude está pensando" (UI em português, 19/10/2026): a fase de
+    # raciocínio não acende o `data-is-streaming`, e a captura gravou só esse
+    # status como resposta (claude_P041_genero, turno 6).
+    pending_markers = ["Searching the web", "", "", "O Claude está pensando", "Claude is thinking"]
     settle_s = 2.0
     # Com `data-is-streaming="true"` na tela, texto parado NÃO é fim: é o
     # Claude pesquisando na web entre a frase de abertura e a resposta (ver
