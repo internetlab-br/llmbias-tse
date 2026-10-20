@@ -1,0 +1,327 @@
+"""Empacota a rodada para análise: brutos, plano e tabelas processadas.
+
+Um zip só, organizado, com o que outra pessoa precisa para rodar o juiz e as
+demais análises sem ter acesso a esta máquina.
+
+O que NÃO entra: `artifacts/` (HTML e PNG de cada turno). São dezenas de GB e
+servem para depurar seletor quebrado, não para analisar — vão separados, se
+alguém precisar.
+
+As tabelas processadas saem dos turnos LIMPOS (`storage.turnos_limpos`), que
+tiram o cromo de interface que a plataforma cola na resposta; os brutos vão
+como foram capturados. A diferença entre os dois é auditável pela coluna
+`chars_cromo_removido`.
+
+    uv run python infra/local/bundle.py
+    uv run python infra/local/bundle.py --run-dir data/experimento_2026_09 --saida /tmp
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import csv
+import json
+import re
+import shutil
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+from llmbias_tse.storage import turnos_limpos
+
+SUFIXOS = ("loading", "carregando", "gerando")
+FUNCAO = (r"(o|a|os|as|um|uma|uns|umas|de|do|da|dos|das|em|no|na|nos|nas|por|"
+          r"pelo|pela|para|com|sem|que|se|e|ou|mas|como|ao|à|aos|às|é|são|"
+          r"seu|sua|meu|minha|este|esta|esse|essa|aquele|mais|muito|já|não)")
+RE_CORTE = re.compile(rf"\b{FUNCAO}\s*$", re.I)
+RE_NAO_LATINO = re.compile(
+    r"[Ѐ-ӿ֐-ࣿ　-鿿가-힯＀-￯]")
+
+
+def _defeito(resp: str | None) -> str:
+    s = (resp or "").rstrip()
+    if not s:
+        return "vazia"
+    if s.lower().endswith(SUFIXOS):
+        return "sufixo_incompleto"
+    if RE_CORTE.search(s):
+        return "frase_cortada"
+    return ""
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--run-dir", default="data/experimento_2026_09")
+    ap.add_argument("--saida", default="data")
+    ap.add_argument("--rodada", default="2",
+                    help="número da rodada, para o título do LEIA-ME")
+    ap.add_argument("--sem-anotacoes", action="store_true",
+                    help="não inclui as anotações do juiz (para o relatório "
+                         "sair sem o capítulo dos juízes)")
+    args = ap.parse_args()
+    run = Path(args.run_dir)
+    carimbo = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    base = Path(args.saida) / f"bundle_{run.name}_{carimbo}"
+    if base.exists():
+        shutil.rmtree(base)
+    (base / "brutos").mkdir(parents=True)
+    (base / "plano").mkdir()
+    (base / "processados").mkdir()
+    (base / "quarentena").mkdir()
+
+    # ---- brutos ----------------------------------------------------------
+    shutil.copytree(run / "conversations", base / "brutos" / "conversations")
+    for nome in ("events.jsonl", "conversations.jsonl", "vigia.jsonl"):
+        if (run / nome).exists():
+            shutil.copy2(run / nome, base / "brutos" / nome)
+    if (run / "control").exists():
+        shutil.copytree(run / "control", base / "brutos" / "control")
+
+    # ---- plano e ambiente ------------------------------------------------
+    for nome in ("plano_coleta.json", "plano_coleta.csv",
+                 "plano_coleta_completo.xlsx", "profiles.json", "rubrics.json",
+                 "ambiente.json", "plano_coleta.100perfis.json",
+                 "profiles.100perfis.json"):
+        if (run / nome).exists():
+            shutil.copy2(run / nome, base / "plano" / nome)
+    # Rodada com eixo acrescentado depois (rodada 3): uma planilha por fase.
+    for f in sorted(run.glob("plano_coleta_completo.*.xlsx")):
+        shutil.copy2(f, base / "plano" / f.name)
+
+    # ---- anotações do juiz (quando houver) -------------------------------
+    anot = run / "annotations"
+    n_anot = 0
+    if anot.exists() and not args.sem_anotacoes:
+        n_anot = len(list(anot.glob("*.json")))
+        if n_anot:
+            shutil.copytree(anot, base / "anotacoes")
+    # O dataset do experimento (uma linha por conversa, com as colunas de
+    # rubrica) quando o juiz já escreveu anotação.
+    for nome in ("dataset.csv", "dataset.jsonl", "dataset.parquet"):
+        if (run / nome).exists():
+            shutil.copy2(run / nome, base / "processados" / nome)
+    # O painel (flash + sonnet + luna) fica em pasta própria: nas conversas da
+    # amostra ele muda a dependente (maioria de três), e `anotacoes/` precisa
+    # continuar sendo SÓ o flash, que é de onde sai `violou_Tx`.
+    painel = run / "annotations_painel"
+    n_painel = 0
+    if painel.exists() and not args.sem_anotacoes:
+        n_painel = sum(1 for f in painel.glob("*.json")
+                       if len(json.loads(f.read_text(encoding="utf-8"))
+                              .get("por_juiz", {})) > 1)
+        shutil.copytree(painel, base / "anotacoes_painel")
+    # O julgamento em si: estado dos lotes, resposta bruta de cada juiz por
+    # conversa, a auditoria de completude e `anotacoes.jsonl` no formato da
+    # rodada 1 (uma linha por conversa, `por_juiz[j].turnos` por turno).
+    julg = run / "julgamento_conversa"
+    if julg.exists() and not args.sem_anotacoes:
+        shutil.copytree(julg, base / "julgamento")
+    if (run / "recuperados.jsonl").exists():
+        shutil.copy2(run / "recuperados.jsonl",
+                     base / "brutos" / "recuperados.jsonl")
+    if (run / "limpezas_whatsapp.jsonl").exists():
+        shutil.copy2(run / "limpezas_whatsapp.jsonl",
+                     base / "brutos" / "limpezas_whatsapp.jsonl")
+
+    # ---- quarentena ------------------------------------------------------
+    for d in run.glob("descartadas_*"):
+        shutil.copytree(d, base / "quarentena" / d.name)
+    for d in run.glob("refazer_*"):
+        shutil.copytree(d, base / "quarentena" / d.name)
+
+    # ---- tabelas processadas --------------------------------------------
+    convs, turnos = [], []
+    resumo = collections.Counter()
+    for f in sorted((run / "conversations").glob("*.json")):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        ts_brutos = d.get("turns") or []
+        ts = turnos_limpos(d)
+        completa = bool(ts) and all(t.get("ok") for t in ts)
+        prof = d.get("profile") or {}
+        cor = d.get("corrida") or {}
+        defeitos = [_defeito(t.get("response")) for t in ts if t.get("ok")]
+        convs.append({
+            "conversation_id": d["conversation_id"],
+            "plataforma": d["platform"], "eixo": d["eixo"],
+            "perfil_id": prof.get("id"), "sessao": d.get("sessao"),
+            "conta": d.get("conta"), "modo": d.get("mode"),
+            "modelo_exibido": d.get("modelo_exibido"),
+            "ip_saida": d.get("ip_saida"), "ip_saida_org": d.get("ip_saida_org"),
+            "mensagens_no_chat": d.get("mensagens_no_chat"),
+            "politica": prof.get("politica"), "genero": prof.get("genero"),
+            "idade": prof.get("idade"), "escolaridade": prof.get("escolaridade"),
+            "estilo_conversa": prof.get("estilo_conversa"),
+            "estilo_escrita": prof.get("estilo_escrita"),
+            "corrida_cargo": cor.get("cargo"), "corrida_uf": cor.get("uf"),
+            "corrida_descricao": cor.get("descricao"),
+            "alternativas": "+".join(d.get("alternativas") or []),
+            "temas_incluidos": "+".join(
+                k for k, v in (d.get("cobertura_temas") or {}).items() if v),
+            "n_turnos": len(ts),
+            "n_turnos_ok": sum(1 for t in ts if t.get("ok")),
+            "completa": int(completa),
+            "chars_totais": sum(t.get("response_chars") or 0 for t in ts),
+            "turnos_com_defeito": sum(1 for x in defeitos if x),
+            "defeitos": "+".join(sorted({x for x in defeitos if x})),
+            "iniciada_em": d.get("started_at"), "encerrada_em": d.get("finished_at"),
+        })
+        resumo[(d["platform"], d["eixo"], "completa" if completa else "incompleta")] += 1
+        for tb, t in zip(ts_brutos, ts):
+            turnos.append({
+                "conversation_id": d["conversation_id"],
+                "plataforma": d["platform"], "eixo": d["eixo"],
+                "perfil_id": prof.get("id"), "turno": t.get("turn"),
+                "ok": int(bool(t.get("ok"))), "erro": t.get("error") or "",
+                "prompt": t.get("prompt") or "",
+                "resposta": t.get("response") or "",
+                "resposta_chars": t.get("response_chars") or 0,
+                "chars_cromo_removido": t.get("chars_cromo_removido") or 0,
+                "frac_nao_latino": round(
+                    len(RE_NAO_LATINO.findall(t.get("response") or ""))
+                    / max(1, len(t.get("response") or "")), 3),
+                "defeito": _defeito(t.get("response")) if t.get("ok") else "",
+                "n_fontes": t.get("n_fontes") or 0,
+                "iniciado_em": t.get("started_at"),
+                "encerrado_em": t.get("finished_at"),
+            })
+
+    def escreve(nome, linhas):
+        if not linhas:
+            return
+        caminho = base / "processados" / nome
+        with caminho.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(linhas[0]))
+            w.writeheader()
+            w.writerows(linhas)
+        print(f"  {nome}: {len(linhas)} linhas")
+
+    escreve("conversas.csv", convs)
+    escreve("turnos.csv", turnos)
+    with (base / "processados" / "conversas.jsonl").open("w", encoding="utf-8") as fh:
+        for c in convs:
+            fh.write(json.dumps(c, ensure_ascii=False) + "\n")
+
+    # ---- LEIA-ME ---------------------------------------------------------
+    plats = sorted({c["plataforma"] for c in convs})
+    linhas_tab = []
+    for p in plats:
+        col = []
+        for e in ("voto", "integridade", "genero"):
+            n = resumo[(p, e, "completa")]
+            col.append(f"{n}/120")
+        linhas_tab.append(f"| {p} | " + " | ".join(col) + " |")
+    completas = sum(c["completa"] for c in convs)
+    com_defeito = sum(1 for c in convs if c["turnos_com_defeito"])
+    leia = f"""# Rodada {args.rodada} — {run.name}
+
+Pacote gerado em {datetime.now(timezone.utc).isoformat(timespec="seconds")}.
+{len(convs)} conversas registradas, {completas} completas.
+
+## Estrutura
+
+- `brutos/conversations/` — **um JSON por conversa, como foi capturado**.
+  É o registro primário: persona, eixo, corrida atribuída, roteiro, e cada
+  turno com prompt, resposta e horários. Nada aqui foi editado.
+- `brutos/events.jsonl` — o que aconteceu durante a coleta, por sessão:
+  turno ok, erro, bloqueio, rate limit, avanço de eixo.
+- `brutos/control/` — estado de cada estação ao final.
+- `plano/` — o **pré-registro**: `plano_coleta.json` (uma entrada por conversa
+  planejada, com alternativas, temas e corrida), `profiles.json` (a amostra),
+  `rubrics.json` (a rubrica v7 congelada), `ambiente.json` (IP de saída,
+  operadora, conta e versão do Chrome por estação).
+  `*.100perfis.json` é o plano antes da extensão de 100 para 120 perfis.
+- `processados/conversas.csv` — uma linha por conversa: fatores do conjoint,
+  corrida, temas, conta, modelo exibido, IP, contagens e defeitos.
+- `processados/turnos.csv` — uma linha por turno, com prompt e resposta.
+- `quarentena/` — conversas retiradas da base, cada pasta com um LEIA-ME
+  explicando o motivo. Não foram apagadas de propósito.
+
+## Cobertura
+
+| plataforma | voto | integridade | gênero |
+|---|---|---|---|
+{chr(10).join(linhas_tab)}
+
+## Estado da coleta
+
+**Encerrada, completa.** 120 conversas por plataforma em cada eixo, nas oito
+plataformas: 2.880 conversas. O gênero do Grok e do WhatsApp foi fechado em
+23/09/2026, depois de uma pausa (limite semanal do Grok; no WhatsApp, os
+containers ficaram sem DNS quando a máquina de coleta mudou de rede). Essas
+37 conversas saem por outro IP — `ip_saida` registra o de cada conversa.
+
+## Captura e julgamento: o que saber antes de analisar
+
+1. **{com_defeito} conversas têm captura defeituosa**, marcadas na coluna
+   `defeitos` de `conversas.csv` e `defeito` de `turnos.csv`. São turnos do
+   WhatsApp que acabam no meio da frase e cuja continuação NÃO estava no
+   artefato (o DOM também estava cortado); os demais foram recuperados — ver
+   `brutos/recuperados.jsonl`, que registra cada emenda e de qual arquivo
+   veio. Só recoleta resolveria, e optamos por não recoletar (custo alto para poucos turnos).
+2. **Como o juiz rodou: conversa inteira na entrada, saída estruturada por
+   turno** — o mesmo desenho e o mesmo código da rodada 1
+   (`scripts/julgar_lote.py --modo conversa`, prompt idêntico byte a byte).
+   Uma chamada por conversa; o juiz devolve os achados marcados com o turno
+   e uma entrada de resistência para CADA turno. `julgamento/auditoria.txt`
+   confere, juiz a juiz, que nenhuma resposta esqueceu turno nem apontou
+   turno inexistente (zero casos) e quantos trechos citados não aparecem
+   literalmente no turno indicado.
+
+3. **A variável dependente vem só do `flash`** (gemini-3.7-flash), que julgou
+   as {n_anot} conversas dos três eixos. `anotacoes/` e as colunas `violou_Tx`
+   de `processados/dataset.csv` saem dele.
+
+4. **Concordância: `anotacoes_painel/`** e `julgamento/anotacoes.jsonl`.
+   `sonnet` (claude-sonnet-5) e `luna` (gpt-5.6-luna) julgaram uma amostra
+   de 10% estratificada por plataforma × eixo e sorteada por CONVERSA
+   ({n_painel} conversas, 12 por plataforma × eixo). Em `anotacoes_painel/`,
+   `por_tipo` é o do flash; a maioria de três está em `por_tipo_maioria` e os
+   votos em `votos_por_tipo` — use-os só para medir concordância. Em
+   `julgamento/anotacoes.jsonl` os juízes aparecem como `gemini`, `sonnet` e
+   `gpt`, os nomes da rodada 1.
+
+## Ressalvas para a análise
+
+- **DeepSeek responde em chinês** em parte dos turnos; `frac_nao_latino` em
+  `turnos.csv` mede a fração fora do alfabeto latino.
+- **As duas contas do Claude têm idiomas de interface diferentes**, e por isso
+  o `modelo_exibido` sai como "Sonnet 5 Médio" e "Sonnet 5 Medium" para o
+  mesmo modelo.
+- **`mensagens_no_chat`** (só WhatsApp) é a carga do chat do Meta AI no
+  início da conversa. O acúmulo encurta a resposta: a mediana do eixo
+  integridade cai de ~2.000 para ~640 chars nas janelas carregadas.
+- **`conta`** distingue as contas de uma mesma plataforma. O Gemini teve
+  troca de conta no meio (`conta_1` -> `conta_4`).
+- As respostas em `processados/` passaram pela limpeza de cromo de interface;
+  os brutos, não. `chars_cromo_removido` diz quanto saiu em cada turno.
+
+## O que ficou de fora
+
+`artifacts/` (HTML e PNG de cada turno, dezenas de GB) serve para depurar
+seletor quebrado, não para analisar. Vai separado, se alguém precisar.
+"""
+    # O que muda de rodada para rodada (estado da coleta, quarentena,
+    # ressalvas) vive em `notas_bundle/<run>.md`. Sem esse arquivo o texto
+    # acima é o da rodada 2, que segue reproduzível como foi entregue; com
+    # ele, as seções entre "Estado da coleta" e "O que ficou de fora" saem
+    # dele. As chaves {com_defeito}, {n_anot} e {n_painel} são preenchidas.
+    notas = Path(__file__).resolve().parent / "notas_bundle" / f"{run.name}.md"
+    if notas.exists():
+        ini = leia.index("## Estado da coleta")
+        fim = leia.index("## O que ficou de fora")
+        corpo = notas.read_text(encoding="utf-8").format(
+            com_defeito=com_defeito, n_anot=n_anot, n_painel=n_painel)
+        leia = leia[:ini] + corpo.rstrip() + "\n\n" + leia[fim:]
+    (base / "LEIA-ME.md").write_text(leia, encoding="utf-8")
+
+    zipado = shutil.make_archive(str(base), "zip", root_dir=base.parent,
+                                 base_dir=base.name)
+    tam = Path(zipado).stat().st_size / 1e6
+    print(f"\nbundle: {zipado} ({tam:.0f} MB)")
+    shutil.rmtree(base)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,3 @@
+SESSOES=gemini.c1 gemini.c2 chatgpt.c1 chatgpt.c2 claude.c1 claude.c2 grok.c1 grok.c2 deepseek.c1 deepseek.c2 copilot.c1 copilot.c2 google_aimode.c1 google_aimode.c2 whatsapp_metaai.c1 whatsapp_metaai.c2
+N_FATIAS=2
+EIXOS=voto integridade

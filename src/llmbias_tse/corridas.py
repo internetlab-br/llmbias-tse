@@ -87,6 +87,16 @@ CALENDARIO_2026 = Calendario(
     segundo_turno="25 de outubro de 2026",
 )
 
+# Rodada 3 (entre os turnos). `hoje` É A DATA DE INÍCIO DA COLETA, confirmada
+# no disparo (12/10/2026; era 05/10, a data do smoke). É registro do plano, não
+# estímulo: o Bloco 1 do segundo turno só cita as datas dos turnos.
+CALENDARIO_RODADA3 = Calendario(
+    ano=2026,
+    hoje="12 de outubro de 2026",
+    primeiro_turno="4 de outubro de 2026",
+    segundo_turno="25 de outubro de 2026",
+)
+
 
 # --------------------------------------------------------------------------
 # Cargos em disputa
@@ -219,6 +229,14 @@ UFS: tuple[UF, ...] = (
 
 UFS_POR_SIGLA: dict[str, UF] = {u.sigla: u for u in UFS}
 
+# As UFs cujas corridas para GOVERNADOR foram ao segundo turno em 2026,
+# conforme a apuração do primeiro turno (04/10/2026): seis estados e o DF.
+# Confirmado pela equipe em 05/10/2026 contra a cobertura da apuração
+# (Agência Brasil, Agência Senado). Só o desenho `segundo_turno` usa esta
+# tabela; os demais seguem com as 27 UFs.
+UFS_SEGUNDO_TURNO: tuple[str, ...] = ("AC", "AM", "DF", "ES", "RJ", "RN",
+                                      "TO")
+
 
 # --------------------------------------------------------------------------
 # Desenhos de sorteio (decisão 2 da nota — em aberto)
@@ -234,6 +252,10 @@ DESENHOS: dict[str, tuple[str, ...]] = {
     # (b) os cinco cargos em disputa
     "cinco_cargos": ("presidente", "governador", "senador",
                      "deputado_federal", "deputado_estadual"),
+    # (d) rodada 3, entre os turnos: só as corridas que foram a segundo
+    # turno em 04/10/2026 — a presidencial e os sete governos de
+    # `UFS_SEGUNDO_TURNO`. O Senado sai inteiro (não tem segundo turno).
+    "segundo_turno": ("presidente", "governador"),
 }
 
 # Decisão da equipe em 15/09/2026, A CONFIRMAR pela pesquisadora que seguir com
@@ -278,12 +300,22 @@ class Corrida:
 
     cargo: str
     uf: str | None = None
+    # Rodada 3: a corrida é o SEGUNDO TURNO da disputa, e a descrição que
+    # entra no prompt precisa dizer isso — entre os turnos, "a eleição para
+    # governador do Rio" sem qualificador deixaria ambíguo de que fase a
+    # conversa trata.
+    segundo_turno: bool = False
 
     @property
     def descricao(self) -> str:
         """O texto que entra no `{corrida atribuída}` do Bloco 1."""
         uf = UFS_POR_SIGLA.get(self.uf) if self.uf else None
-        return CARGOS[self.cargo].descricao(uf)
+        base = CARGOS[self.cargo].descricao(uf)
+        if self.segundo_turno:
+            # todos os templates começam com "a eleição..." -> "o segundo
+            # turno da eleição..."
+            return "o segundo turno d" + base
+        return base
 
     def colunas(self) -> dict:
         """As colunas da base. `corrida` é o rótulo curto, para agrupar."""
@@ -295,7 +327,9 @@ class Corrida:
         }
 
     def to_dict(self) -> dict:
-        return {"cargo": self.cargo, "uf": self.uf, "descricao": self.descricao}
+        return {"cargo": self.cargo, "uf": self.uf,
+                "segundo_turno": self.segundo_turno,
+                "descricao": self.descricao}
 
 
 def _cargos_do_desenho(desenho: str) -> tuple[str, ...]:
@@ -318,16 +352,41 @@ def _exigir_tabela_ufs(cargo_key: str, desenho: str) -> None:
         )
 
 
+def _ufs_do_desenho(cargo_key: str, desenho: str) -> tuple[UF, ...]:
+    """As UFs que o desenho admite para os cargos que exigem UF.
+
+    O `segundo_turno` usa só as UFs de `UFS_SEGUNDO_TURNO` — e aborta se a
+    tabela estiver vazia ou citar sigla desconhecida, pela mesma razão da
+    guarda acima: resultado de apuração é dado da equipe, nunca invenção.
+    """
+    _exigir_tabela_ufs(cargo_key, desenho)
+    if desenho != "segundo_turno":
+        return UFS
+    if not UFS_SEGUNDO_TURNO:
+        raise ValueError(
+            "o desenho 'segundo_turno' está sem UFs: preencha "
+            "`corridas.UFS_SEGUNDO_TURNO` com a apuração do 1º turno antes "
+            "de rodar."
+        )
+    fora = [s for s in UFS_SEGUNDO_TURNO if s not in UFS_POR_SIGLA]
+    if fora:
+        raise ValueError(
+            f"`UFS_SEGUNDO_TURNO` cita siglas desconhecidas: {fora}"
+        )
+    return tuple(u for u in UFS if u.sigla in UFS_SEGUNDO_TURNO)
+
+
 def celulas(desenho: str = DESENHO_PADRAO) -> tuple[Corrida, ...]:
     """Todas as corridas possíveis do desenho — o denominador da cobertura."""
+    st = desenho == "segundo_turno"
     out: list[Corrida] = []
     for key in _cargos_do_desenho(desenho):
         cargo = CARGOS[key]
         if not cargo.exige_uf:
-            out.append(Corrida(key))
+            out.append(Corrida(key, segundo_turno=st))
             continue
-        _exigir_tabela_ufs(key, desenho)
-        out.extend(Corrida(key, u.sigla) for u in UFS)
+        out.extend(Corrida(key, u.sigla, segundo_turno=st)
+                   for u in _ufs_do_desenho(key, desenho))
     return tuple(out)
 
 
@@ -349,15 +408,16 @@ def _quotas(total: int, n_grupos: int, rng: random.Random) -> list[int]:
 def _fila_por_cargo(n: int, cargos: Sequence[str], desenho: str,
                     rng: random.Random) -> list[Corrida]:
     """Cada CARGO com o mesmo N; dentro do cargo, as UFs repartem por igual."""
+    st = desenho == "segundo_turno"
     fila: list[Corrida] = []
     for key, quota in zip(cargos, _quotas(n, len(cargos), rng)):
         cargo = CARGOS[key]
         if not cargo.exige_uf:
-            fila.extend([Corrida(key)] * quota)
+            fila.extend([Corrida(key, segundo_turno=st)] * quota)
             continue
-        _exigir_tabela_ufs(key, desenho)
-        for uf, q in zip(UFS, _quotas(quota, len(UFS), rng)):
-            fila.extend([Corrida(key, uf.sigla)] * q)
+        ufs = _ufs_do_desenho(key, desenho)
+        for uf, q in zip(ufs, _quotas(quota, len(ufs), rng)):
+            fila.extend([Corrida(key, uf.sigla, segundo_turno=st)] * q)
     return fila
 
 
@@ -380,12 +440,14 @@ def sortear_corrida(profile_id: str, seed: int = 2026,
     permite acrescentar perfis a uma rodada sem mexer nos que já existem.
     """
     desenho_cargos = _cargos_do_desenho(desenho)
+    st = desenho == "segundo_turno"
     rng = _rng_for(seed, "corrida", desenho, profile_id)
     cargo = CARGOS[rng.choice(list(desenho_cargos))]
     if not cargo.exige_uf:
-        return Corrida(cargo=cargo.key)
-    _exigir_tabela_ufs(cargo.key, desenho)
-    return Corrida(cargo=cargo.key, uf=rng.choice(list(UFS)).sigla)
+        return Corrida(cargo=cargo.key, segundo_turno=st)
+    ufs = _ufs_do_desenho(cargo.key, desenho)
+    return Corrida(cargo=cargo.key, uf=rng.choice(list(ufs)).sigla,
+                   segundo_turno=st)
 
 
 def sortear_corridas(profile_ids: Sequence[str], seed: int = 2026,
@@ -424,6 +486,82 @@ def sortear_corridas(profile_ids: Sequence[str], seed: int = 2026,
         fila = _fila_por_celula(len(pids), desenho, rng)
     rng.shuffle(fila)
     return dict(zip(pids, fila))
+
+
+def corridas_do_plano(plano: dict, eixo: str) -> dict[str, Corrida]:
+    """As corridas COMO REGISTRADAS em `plano_coleta.json`, por perfil.
+
+    O plano é a fonte da verdade da corrida, e não o resultado de chamar
+    `sortear_corridas` de novo na hora de rodar. O motivo é o que está escrito
+    no aviso de `sortear_corridas`: balancear faz a corrida de um perfil
+    depender de QUANTOS perfis entram no sorteio. A coleta em fatias (uma
+    conta por metade dos perfis, `--fatia`) entrega 50 ids em vez de 100 — e
+    aí o sorteio, ainda que determinístico, dá outra resposta.
+
+    Medido em 18/09/2026: com a fatia, só 6 dos 50 perfis recebiam a corrida
+    que o plano registrou. As conversas ficavam internamente coerentes (o
+    registro guarda o que foi perguntado) e comparáveis entre plataformas (a
+    fatia de um perfil é a mesma em todas), mas perguntavam sobre outra
+    eleição que a do pré-registro. Ler do plano fecha essa porta: a corrida
+    deixa de ser recalculável.
+    """
+    out: dict[str, Corrida] = {}
+    # Planos gravados antes de `to_dict` levar `segundo_turno` (out/2026) não
+    # têm a marca; nesses, ela vem do desenho da rodada.
+    st_do_desenho = plano.get("desenho_corrida") == "segundo_turno"
+    for c in plano.get("conversas", ()):
+        if c.get("eixo") != eixo:
+            continue
+        d = c.get("corrida")
+        if d and c["perfil_id"] not in out:
+            corr = Corrida(cargo=d["cargo"], uf=d.get("uf"),
+                           segundo_turno=d.get("segundo_turno", st_do_desenho))
+            # A corrida refeita tem de descrever EXATAMENTE a eleição que o
+            # plano registrou. Em out/2026 esta função refazia só cargo e UF,
+            # perdia a marca de segundo turno, e a coleta perguntava sobre "a
+            # eleição para governador" com o estímulo da rodada 2 — sem aviso
+            # nenhum, porque o plano em si estava certo.
+            if d.get("descricao") and corr.descricao != d["descricao"]:
+                raise SystemExit(
+                    f"[corridas] ABORTADO: a corrida de {c['perfil_id']} "
+                    f"refeita do plano diz {corr.descricao!r}, e o plano "
+                    f"registrou {d['descricao']!r}. A coleta perguntaria "
+                    f"sobre outra eleição que a do pré-registro.")
+            out[c["perfil_id"]] = corr
+    return out
+
+
+def estender_corridas(registradas: dict[str, Corrida],
+                      novos_ids: Sequence[str], seed: int = 2026,
+                      desenho: str = DESENHO_PADRAO,
+                      balanceamento: str = BALANCEAMENTO_PADRAO,
+                      ) -> dict[str, Corrida]:
+    """Acrescenta perfis a uma rodada em andamento SEM remexer os que já têm
+    corrida registrada.
+
+    Existe porque `sortear_corridas` é balanceado sobre o CONJUNTO: pedir 120
+    perfis em vez de 100 reatribui a corrida de quase todos — medido em
+    19/09/2026, só 9 dos 100 sobreviveriam. Com 1.303 conversas já coletadas
+    sob as corridas registradas, reatribuir é trocar o estímulo de perna
+    inteira no meio da rodada.
+
+    Perfis, roteiros e temas NÃO têm esse problema: são função de (semente,
+    perfil) e saem idênticos ao estender. A corrida é a única peça do plano
+    que depende de quantos perfis existem, e por isso é a única que precisa
+    desta função.
+
+    Os novos recebem um sorteio balanceado PRÓPRIO, determinístico em
+    (semente, ids novos, desenho, balanceamento). A alternativa — continuar a
+    fila original — não existe: a fila é construída para um tamanho e
+    embaralhada, não é uma sequência que se estenda. Duas filas balanceadas
+    somadas mantêm a proporção por cargo, que é o que o balanceamento protege.
+    """
+    novos = [p for p in sorted(novos_ids) if p not in registradas]
+    if not novos:
+        return dict(registradas)
+    extra = sortear_corridas(novos, seed=seed, desenho=desenho,
+                             balanceamento=balanceamento)
+    return {**registradas, **extra}
 
 
 def resumo_cobertura(atribuidas: dict[str, Corrida],

@@ -16,29 +16,53 @@
 # frente; enquanto ela não estiver no ar, publique só em localhost.
 
 :8080 {
-	handle_path /vnc/gemini/* {
-		reverse_proxy coleta-gemini:6080
+	handle_path /vnc/gemini.c1/* {
+		reverse_proxy coleta-gemini.c1:6080
 	}
-	handle_path /vnc/chatgpt/* {
-		reverse_proxy coleta-chatgpt:6080
+	handle_path /vnc/gemini.c2/* {
+		reverse_proxy coleta-gemini.c2:6080
 	}
-	handle_path /vnc/claude/* {
-		reverse_proxy coleta-claude:6080
+	handle_path /vnc/chatgpt.c1/* {
+		reverse_proxy coleta-chatgpt.c1:6080
 	}
-	handle_path /vnc/grok/* {
-		reverse_proxy coleta-grok:6080
+	handle_path /vnc/chatgpt.c2/* {
+		reverse_proxy coleta-chatgpt.c2:6080
 	}
-	handle_path /vnc/deepseek/* {
-		reverse_proxy coleta-deepseek:6080
+	handle_path /vnc/claude.c1/* {
+		reverse_proxy coleta-claude.c1:6080
 	}
-	handle_path /vnc/copilot/* {
-		reverse_proxy coleta-copilot:6080
+	handle_path /vnc/claude.c2/* {
+		reverse_proxy coleta-claude.c2:6080
 	}
-	handle_path /vnc/google_aimode/* {
-		reverse_proxy coleta-google_aimode:6080
+	handle_path /vnc/grok.c1/* {
+		reverse_proxy coleta-grok.c1:6080
 	}
-	handle_path /vnc/whatsapp_metaai/* {
-		reverse_proxy coleta-whatsapp_metaai:6080
+	handle_path /vnc/grok.c2/* {
+		reverse_proxy coleta-grok.c2:6080
+	}
+	handle_path /vnc/deepseek.c1/* {
+		reverse_proxy coleta-deepseek.c1:6080
+	}
+	handle_path /vnc/deepseek.c2/* {
+		reverse_proxy coleta-deepseek.c2:6080
+	}
+	handle_path /vnc/copilot.c1/* {
+		reverse_proxy coleta-copilot.c1:6080
+	}
+	handle_path /vnc/copilot.c2/* {
+		reverse_proxy coleta-copilot.c2:6080
+	}
+	handle_path /vnc/google_aimode.c1/* {
+		reverse_proxy coleta-google_aimode.c1:6080
+	}
+	handle_path /vnc/google_aimode.c2/* {
+		reverse_proxy coleta-google_aimode.c2:6080
+	}
+	handle_path /vnc/whatsapp_metaai.c1/* {
+		reverse_proxy coleta-whatsapp_metaai.c1:6080
+	}
+	handle_path /vnc/whatsapp_metaai.c2/* {
+		reverse_proxy coleta-whatsapp_metaai.c2:6080
 	}
 
 	handle {

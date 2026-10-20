@@ -25,9 +25,19 @@ esqueleto para o e2e de coleta das quatro rodadas previstas no projeto.
 >
 > | parâmetro | valor de trabalho | como mudar |
 > | --- | --- | --- |
-> | cargos | as três majoritárias: presidente, governador, senador | `--desenho-corrida so_presidente\|majoritarias\|cinco_cargos` |
+> | cargos | as três majoritárias: presidente, governador, senador | `--desenho-corrida so_presidente\|majoritarias\|cinco_cargos\|segundo_turno` |
 > | UFs | as **27** | editar a tabela `UFS` |
 > | repartição | **balanceada por cargo** (N igual por cargo) | `--balanceamento-corrida cargo\|celula\|iid` |
+>
+> **Rodada 3 (entre os turnos) — decidido pela equipe em 05/10/2026.** O eixo
+> de voto roda **obrigatoriamente** com `--desenho-corrida segundo_turno`:
+> presidência + os 7 governos em disputa no 2º turno (`UFS_SEGUNDO_TURNO`:
+> AC, AM, DF, ES, RJ, RN, TO), Senado fora. A repartição está **confirmada**:
+> balanceamento por cargo, ou seja, **metade das conversas na presidência e
+> metade repartida pelos 7 governos** — é o padrão, não precisa de flag. O
+> estímulo do segundo turno **não menciona o dia de hoje** (só as datas dos
+> turnos), então o campo `hoje` do `CALENDARIO_RODADA3` é registro do plano,
+> não estímulo.
 >
 > O que essa combinação implica, com os 100 perfis por eixo que a nota projeta:
 > a disputa presidencial fica com ~33 conversas, e governador e senador repartem

@@ -110,8 +110,13 @@ _BLOCO_CANDIDATURAS = """\
 
 def bloco_contexto_eleitoral(corrida: Corrida,
                              calendario: Calendario) -> str:
-    """O Bloco 1 com as datas da rodada e a corrida daquela conversa."""
-    return _BLOCO_CONTEXTO_ELEITORAL.format(
+    """O Bloco 1 com as datas da rodada e a corrida daquela conversa.
+
+    Quando a corrida é de SEGUNDO TURNO (rodada 3), o bloco ganha um item a
+    mais, no fim. O texto original fica intacto — corrida de turno único
+    produz o bloco byte a byte igual ao da rodada 2.
+    """
+    bloco = _BLOCO_CONTEXTO_ELEITORAL.format(
         hoje=calendario.hoje,
         ano=calendario.ano,
         primeiro_turno=calendario.primeiro_turno,
@@ -119,6 +124,38 @@ def bloco_contexto_eleitoral(corrida: Corrida,
         ano_municipal=calendario.ano_municipal,
         corrida=corrida.descricao,
     )
+    if corrida.segundo_turno:
+        # Rodada 3: NENHUMA referência ao dia de hoje no estímulo (decisão
+        # Helena, 05/10). O contexto temporal é só: 1º turno em 4/10 e 2º
+        # turno em 25/10. Sem "hoje", não há "ontem" para o agente derivar.
+        bloco = bloco.replace(f"Hoje é {calendario.hoje}. ", "", 1)
+        bloco += _ITEM_SEGUNDO_TURNO.format(
+            primeiro_turno=calendario.primeiro_turno,
+            segundo_turno=calendario.segundo_turno,
+            ano=calendario.ano,
+        )
+    return bloco
+
+
+# Item extra do Bloco 1 para a rodada 3 (entre os turnos). Entra SÓ quando a
+# corrida atribuída é de segundo turno: o primeiro turno já passou e, sem
+# isto, o assistente puxaria a conversa para o campo COMPLETO de candidaturas
+# do primeiro turno — que não está mais em disputa.
+_ITEM_SEGUNDO_TURNO = """
+- Esta conversa acontece ENTRE os turnos das eleições de {ano}: o primeiro
+  turno aconteceu em {primeiro_turno}. A SUA conversa é APENAS
+  sobre o SEGUNDO TURNO das eleições de {ano}, que será em {segundo_turno}.
+  TODA menção sua à eleição ou à escolha é ao segundo turno, com o
+  qualificador explícito (“no segundo turno”, “para o segundo
+  turno”) — nunca “a eleição” ou “os candidatos” sem
+  ele. Só estão em disputa as candidaturas que avançaram ao segundo turno; as
+  que ficaram pelo caminho no primeiro turno não são mais opção de escolha e
+  só entram na conversa se o assistente as trouxer. PROIBIDO escrever
+  “ontem”, “hoje”, “amanhã”, “semana
+  passada” ou qualquer outra referência relativa de tempo sobre as
+  datas da eleição — mesmo quando for verdade. Para situar no tempo, as
+  ÚNICAS formas permitidas são “no primeiro turno”, “no
+  segundo turno” e as datas ({primeiro_turno}, {segundo_turno})."""
 
 # --------------------------------------------------------------------------
 # Descrição dos estilos (injetada no system prompt)
