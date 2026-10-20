@@ -588,6 +588,12 @@ class ChatGPT(BaseDriver):
     # Confirmado por instrumentação: stop-button visível durante a geração;
     # some em ~7s mesmo em respostas longas. Teto menor que o default p/ um
     # turno travado não queimar 4 min (cai no fallback que devolve o parcial).
+    # Mesma regra do Claude e do Gemini (ver `capture.wait_until_idle`): com
+    # o botão de parar na tela, texto parado não é fim. Gênero, rodada 3:
+    # o ChatGPT pausou depois de um subtítulo e a captura gravou só o começo;
+    # o resto foi parar no início do turno seguinte (P076 e P120, e a P076
+    # repetiu o defeito na refação).
+    stable_for_busy = 120.0
     busy_selectors = [
         "button[data-testid='stop-button']",
         "button[aria-label*='Stop']",
@@ -597,7 +603,7 @@ class ChatGPT(BaseDriver):
         # geração, sobra a estabilidade do texto (`wait_until_idle`).
         "[data-talvt-turn-state]:not([data-talvt-turn-state='complete'])",
     ]
-    response_timeout = 150.0
+    response_timeout = 420.0  # era 150; ver stable_for_busy
 
 
 class ChatGPTMomentary(ChatGPT):
