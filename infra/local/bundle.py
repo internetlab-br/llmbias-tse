@@ -85,6 +85,9 @@ def main() -> int:
                  "profiles.100perfis.json"):
         if (run / nome).exists():
             shutil.copy2(run / nome, base / "plano" / nome)
+    # Rodada com eixo acrescentado depois (rodada 3): uma planilha por fase.
+    for f in sorted(run.glob("plano_coleta_completo.*.xlsx")):
+        shutil.copy2(f, base / "plano" / f.name)
 
     # ---- anotações do juiz (quando houver) -------------------------------
     anot = run / "annotations"
